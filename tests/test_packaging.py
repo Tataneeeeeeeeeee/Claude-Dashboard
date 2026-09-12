@@ -61,39 +61,79 @@ def test_installers_copy_everything_the_app_needs_at_runtime():
             assert item in text, f"{script} never mentions {item}"
 
 
-def test_the_launcher_template_execs_the_entry_point_and_forwards_arguments():
-    r"""The launcher must run run_app.py, not `-m`, and pass flags through.
-
-    The argument list is escaped in the heredoc that writes it, so the
-    template reads `"\$@"` in the source and `"$@"` in the generated file.
-    """
+def test_the_launcher_template_runs_the_entry_point(tmp_path):
+    """The launcher must run run_app.py, not `-m`, and forward its flags."""
     text = read("install.sh")
-    assert 'exec "$PREFIX/venv/bin/python" "$PREFIX/app/run_app.py" "\\$@"' in text
+    assert '"$PREFIX/app/run_app.py"' in text
+    assert '"$PREFIX/venv/bin/python"' in text
 
 
 def test_the_generated_launcher_is_valid_and_forwards_arguments(tmp_path):
-    """Render the heredoc the way the installer does and check the result."""
-    import re
+    """Render the heredoc the way the installer does, then check the result.
+
+    A syntax error or a dropped argument here only shows up the first
+    time somebody types the command.
+    """
     import subprocess
 
     text = read("install.sh")
-    body = re.search(r"cat > \"\$LAUNCHER\" <<LAUNCHEREOF\n(.*?)LAUNCHEREOF",
+    body = re.search(r'cat > "\$LAUNCHER" <<LAUNCHEREOF\n(.*?)\nLAUNCHEREOF',
                      text, re.S)
     assert body, "the launcher heredoc moved"
-    rendered = (body.group(1)
-                .replace("$PREFIX", str(tmp_path))
-                .replace("\\$@", "$@"))
+
+    # The heredoc is unquoted: $PREFIX expands, \$ stays literal.
+    rendered = body.group(1).replace("$PREFIX", str(tmp_path))
+    rendered = re.sub(r"\\([$`])", r"\1", rendered)
+
     launcher = tmp_path / "claude-dashboard"
     launcher.write_text(rendered, encoding="utf-8")
+    result = subprocess.run(["bash", "-n", str(launcher)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
-    assert subprocess.run(["bash", "-n", str(launcher)]).returncode == 0
-    assert 'exec "' + str(tmp_path) + '/venv/bin/python"' in rendered
-    assert rendered.rstrip().endswith('"$@"'), "arguments must be forwarded"
+    assert f'{tmp_path}/venv/bin/python' in rendered
+    assert f'{tmp_path}/app/run_app.py' in rendered
+    # Arguments reach the app on both the foreground and the detached path.
+    assert rendered.count('"$@"') >= 3, "arguments are not forwarded everywhere"
+    assert "nohup" in rendered
 
 
 def test_the_windows_launcher_avoids_a_console_window():
     text = read("install.ps1")
     assert "pythonw.exe" in text, "a desktop app must not open a console"
+
+
+def test_both_launchers_detach_so_the_terminal_is_freed():
+    """Running the command must not tie up the shell it was typed in."""
+    shell = read("install.sh")
+    assert "nohup" in shell, "the unix launcher never detaches"
+    assert "disown" in shell
+
+    batch = read("install.ps1")
+    assert 'start "" "$exe"' in batch, "the windows launcher never detaches"
+
+
+def test_both_launchers_keep_the_foreground_for_printing_options():
+    """--check and friends write to the terminal; detaching hides them."""
+    for script, flag in (("install.sh", "--check"), ("install.ps1", "--check")):
+        text = read(script)
+        block = text[text.index("Launcher for Claude Code Dashboard"):]
+        for option in ("--check", "--version", "--headless", "--debug"):
+            assert option in block, f"{script} does not special-case {option}"
+        assert "--foreground" in block, f"{script} has no escape hatch"
+
+
+def test_the_unix_launcher_reports_an_immediate_crash():
+    """A detached process that dies at once would otherwise be silent."""
+    text = read("install.sh")
+    assert "exited immediately" in text
+    assert "launch.log" in text, "there is nowhere to look for the reason"
+
+
+def test_the_windows_launcher_strips_foreground_without_shift():
+    """`shift` does not rewrite %* in batch, so substitution is required."""
+    text = read("install.ps1")
+    assert "%ARGS:--foreground=%" in text
+    assert "shift\n  set \"ARGS=%*\"" not in text
 
 
 def test_uninstall_never_removes_user_data():

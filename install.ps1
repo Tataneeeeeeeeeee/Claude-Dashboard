@@ -156,8 +156,35 @@ CLAUDE_DASHBOARD_SRC accepts a git URL, a .zip or a local path.
     @"
 @echo off
 REM Launcher for Claude Code Dashboard, written by install.ps1.
-REM Every argument is passed through: --check, --headless, --browser, --debug.
-start "" "$exe" "$runner" %*
+REM
+REM Opens the window and returns straight away, so the terminal stays free
+REM and closing it does not close the app. `start` detaches, and pythonw
+REM means no console window appears.
+REM
+REM Options that print to the terminal keep the foreground, because
+REM pythonw would swallow their output: --check, --version, --headless,
+REM --browser, --debug and --help. Add --foreground to stay attached.
+setlocal
+
+set "ARGS=%*"
+set "FOREGROUND="
+
+REM `shift` does not rewrite %*, so --foreground is removed by substitution.
+if not "%ARGS%"=="%ARGS:--foreground=%" (
+  set "FOREGROUND=1"
+  set "ARGS=%ARGS:--foreground=%"
+)
+
+if not "%ARGS%"=="" (
+  echo(%ARGS% | findstr /i /c:"--check" /c:"--version" /c:"--headless" /c:"--browser" /c:"--debug" /c:"--help" >nul && set "FOREGROUND=1"
+)
+
+if defined FOREGROUND (
+  "$vpy" "$runner" %ARGS%
+  exit /b %errorlevel%
+)
+
+start "" "$exe" "$runner" %ARGS%
 "@ | Set-Content -Path $launcherCmd -Encoding ASCII
     Write-Host "  $launcherCmd"
 
@@ -191,7 +218,10 @@ start "" "$exe" "$runner" %*
         Write-Host "  Run it directly meanwhile: $launcherCmd"
         Write-Host ''
     }
+    Write-Host 'The window opens and the terminal is handed straight back to you.'
+    Write-Host ''
     Write-Host 'Other commands:'
+    Write-Host '    claude-dashboard --foreground         stay attached and watch the output'
     Write-Host '    claude-dashboard --check              report the webview backend'
     Write-Host '    claude-dashboard --headless --browser run without a native window'
     Write-Host '    install.ps1 -Uninstall                remove it again'

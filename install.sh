@@ -209,8 +209,53 @@ step "Creating the launcher"
 cat > "$LAUNCHER" <<LAUNCHEREOF
 #!/usr/bin/env bash
 # Launcher for Claude Code Dashboard, written by install.sh.
-# Every argument is passed through: --check, --headless, --browser, --debug.
-exec "$PREFIX/venv/bin/python" "$PREFIX/app/run_app.py" "\$@"
+#
+# Opens the window and returns straight away, so the terminal stays free
+# and closing it does not close the app.
+#
+# Options that print to the terminal keep the foreground, because there
+# would be nothing to read otherwise: --check, --version, --headless,
+# --browser, --debug and --help. Add --foreground to any run to stay
+# attached and watch the output.
+set -eu
+
+PYTHON="$PREFIX/venv/bin/python"
+APP="$PREFIX/app/run_app.py"
+LOG="\${CLAUDE_DASHBOARD_HOME:-\$HOME/.claude-dashboard}/launch.log"
+
+# --foreground is consumed here; the application does not know it.
+if [ "\${1:-}" = "--foreground" ] || [ "\${1:-}" = "-F" ]; then
+  shift
+  exec "\$PYTHON" "\$APP" "\$@"
+fi
+
+for arg in "\$@"; do
+  case "\$arg" in
+    --check|--version|--headless|--browser|--debug|-h|--help)
+      exec "\$PYTHON" "\$APP" "\$@"
+      ;;
+  esac
+done
+
+mkdir -p "\$(dirname "\$LOG")"
+printf '\\n=== %s ===\\n' "\$(date)" >> "\$LOG"
+
+# nohup detaches from the terminal, so the app survives closing it.
+nohup "\$PYTHON" "\$APP" "\$@" >> "\$LOG" 2>&1 &
+pid=\$!
+disown 2>/dev/null || true
+
+# A detached process that dies instantly would otherwise fail silently.
+# One second is enough: the failures that matter here - no webview
+# backend, a broken virtualenv - surface immediately.
+sleep 1
+if kill -0 "\$pid" 2>/dev/null; then
+  echo "Claude Code Dashboard started (pid \$pid)."
+else
+  echo "error: it exited immediately. Last lines of \$LOG:" >&2
+  tail -n 20 "\$LOG" >&2
+  exit 1
+fi
 LAUNCHEREOF
 chmod +x "$LAUNCHER"
 say "  $LAUNCHER"
@@ -261,7 +306,10 @@ case ":$PATH:" in
     ;;
 esac
 
+say "The window opens and the terminal is handed straight back to you."
+say
 say "Other commands:"
+say "    claude-dashboard --foreground         stay attached and watch the output"
 say "    claude-dashboard --check              report the webview backend"
 say "    claude-dashboard --headless --browser run without a native window"
 say "    $0 --uninstall   remove it again"

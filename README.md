@@ -99,13 +99,23 @@ It builds its own virtual environment, so it cannot disturb your system
 Python packages. On Windows the launcher runs through `pythonw.exe`, so no
 console window appears.
 
+The window opens and your terminal is handed straight back to you. The app
+is detached, so closing the terminal does not close it.
+
 The command forwards every option:
 
 ```sh
+claude-dashboard --foreground            # stay attached and watch the output
 claude-dashboard --check                 # report the webview backend
 claude-dashboard --headless --browser    # run without a native window
 claude-dashboard --debug                 # open the webview inspector
 ```
+
+Anything that prints to the terminal keeps the foreground automatically,
+so `--check` and `--version` still show their output. Everything a
+detached run writes goes to `~/.claude-dashboard/launch.log`, and if the
+app dies during start-up the command prints the reason instead of
+returning quietly.
 
 ### Updating
 
