@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- No remote origins are permitted: the app must work with no network. -->
+<!-- The policy exists to enforce the offline guarantee: `default-src 'self'`
+     and `connect-src 'self'` mean the page cannot reach any remote origin,
+     which is the property that matters here.
+
+     `unsafe-eval` is required because pywebview installs its native bridge
+     by evaluating a string in the page; without it `window.pywebview.api`
+     never appears and the native dialogs stop working. Every script is
+     served by this process, so nothing third-party can exploit it.
+
+     `__CSP_NONCE__` is replaced per response so the inlined first-screen
+     data may run. It stays a literal if the file is opened directly, in
+     which case there is no inline script either. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval' 'nonce-__CSP_NONCE__';
+               style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+               font-src 'self'; connect-src 'self'; base-uri 'none';
+               object-src 'none'; frame-src 'none'">
+<title>Claude Code Dashboard</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<div id="app">
+
+  <header class="titlebar">
+    <span class="brand">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="21" height="21" rx="5.5"
+              stroke="currentColor" stroke-width="1.6" opacity=".35"/>
+        <path d="M6 7l3.2 3.2L6 13.4" stroke="var(--accent)" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12.4 13.4h5.2" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" opacity=".5"/>
+        <rect x="6"    y="16.4" width="2.4" height="2.2" rx="1" fill="currentColor" opacity=".75"/>
+        <rect x="9.9"  y="14.6" width="2.4" height="4"   rx="1" fill="currentColor" opacity=".75"/>
+        <rect x="13.8" y="15.4" width="2.4" height="3.2" rx="1" fill="currentColor" opacity=".75"/>
+        <rect x="17.7" y="13.4" width="2.4" height="5.2" rx="1" fill="var(--accent)"/>
+      </svg>
+      Claude Code Dashboard
+    </span>
+
+    <nav class="nav" id="nav">
+      <button data-view="sessions" class="active">Sessions</button>
+      <button data-view="usage">Usage</button>
+      <button data-view="config">Config</button>
+    </nav>
+
+    <span class="spacer"></span>
+
+    <div class="search-wrap">
+      <span class="icon">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <input id="search" type="search" placeholder="Search all conversations"
+             autocomplete="off" spellcheck="false" aria-label="Search all conversations">
+      <kbd>/</kbd>
+    </div>
+
+    <button id="btn-refresh" class="bordered" title="Rebuild the index (F5)">Refresh</button>
+    <button id="btn-theme" class="bordered" title="Toggle light and dark theme">Theme</button>
+  </header>
+
+  <div class="progress-bar" id="progress"><div></div></div>
+
+  <main>
+    <!-- Sessions ------------------------------------------------------- -->
+    <section class="view active" id="view-sessions">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <div class="filter-row">
+            <select id="filter-project" aria-label="Filter by project">
+              <option value="">All projects</option>
+            </select>
+          </div>
+          <div class="filter-row">
+            <select id="sort" aria-label="Sort sessions" title="Sort order">
+              <option value="recent">Recent</option>
+              <option value="oldest">Oldest</option>
+              <option value="longest">Longest</option>
+              <option value="expensive">Costliest</option>
+              <option value="messages">Messages</option>
+              <option value="tokens">Tokens</option>
+              <option value="size">File size</option>
+              <option value="title">A to Z</option>
+            </select>
+            <select id="filter-model" aria-label="Filter by model" title="Filter by model">
+              <option value="">Model</option>
+            </select>
+            <select id="filter-tool" aria-label="Filter by tool" title="Filter by tool">
+              <option value="">Tool</option>
+            </select>
+            <button id="btn-favorites" title="Show only favourites">&#9733;</button>
+          </div>
+        </div>
+
+        <div class="sidebar-meta">
+          <span id="list-count">&nbsp;</span>
+          <span class="spacer" style="flex:1"></span>
+          <span id="list-hint" class="faint"></span>
+          <button id="btn-maintenance" title="Bulk clean-up rules">Clean up</button>
+          <button id="btn-trash" title="Show the trash">Trash</button>
+        </div>
+
+        <div class="selection-bar hidden" id="selection-bar">
+          <span id="selection-count" class="num"></span>
+          <span class="spacer" style="flex:1"></span>
+          <button id="btn-select-all" title="Select every listed session">All</button>
+          <button id="btn-select-none" title="Clear the selection">None</button>
+          <button id="btn-delete-selected" class="danger"
+                  title="Move the selected sessions to the trash">Move to trash</button>
+        </div>
+
+        <div class="session-list" id="session-list" tabindex="0"></div>
+      </aside>
+
+      <div class="content" id="session-content">
+        <div class="placeholder" id="sessions-placeholder">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 5.5h16M4 12h16M4 18.5h10" stroke="currentColor"
+                  stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+          <h2>Select a session</h2>
+          <p>Pick a conversation on the left, or press <kbd>/</kbd> to search every
+             transcript at once.</p>
+          <p class="faint" style="margin-top:14px;font-size:12px">
+            <kbd>Ctrl</kbd>-click rows to select several,
+            <kbd>r</kbd> to resume one in a terminal,
+            <kbd>Del</kbd> to move it to the trash.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Usage ---------------------------------------------------------- -->
+    <section class="view" id="view-usage">
+      <div class="content" id="usage-host"></div>
+    </section>
+
+    <!-- Config --------------------------------------------------------- -->
+    <section class="view" id="view-config">
+      <div class="content" id="config-host"></div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Starting</span>
+    <span class="spacer"></span>
+    <span id="status-corpus" class="num"></span>
+    <span id="status-native" class="faint"></span>
+  </footer>
+
+</div>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <header>
+      <span id="modal-title">Keyboard shortcuts</span>
+      <span class="spacer"></span>
+      <button id="modal-close" aria-label="Close">&#x2715;</button>
+    </header>
+    <div class="content-area" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/markdown.js"></script>
+<script src="/static/charts.js"></script>
+<script src="/static/usage.js"></script>
+<script src="/static/config-view.js"></script>
+<script src="/static/viewer.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

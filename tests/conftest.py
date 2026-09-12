@@ -1,0 +1,51 @@
+"""Shared fixtures.
+
+Every test runs against a throwaway ``CLAUDE_DASHBOARD_HOME`` so the suite
+never reads or writes the real ``~/.claude-dashboard``.
+"""
+
+from __future__ import annotations
+
+import shutil
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+@pytest.fixture
+def fixtures() -> Path:
+    """Directory holding the sample transcripts."""
+    return FIXTURES
+
+
+@pytest.fixture(autouse=True)
+def isolated_app_home(tmp_path, monkeypatch):
+    """Point the app's config and cache at a temporary directory."""
+    home = tmp_path / "app-home"
+    home.mkdir()
+    monkeypatch.setenv("CLAUDE_DASHBOARD_HOME", str(home))
+    from claude_dashboard import config
+
+    monkeypatch.setattr(config, "_CACHED", None, raising=False)
+    yield home
+    monkeypatch.setattr(config, "_CACHED", None, raising=False)
+
+
+@pytest.fixture
+def fake_claude_home(tmp_path, monkeypatch) -> Path:
+    """A ``~/.claude`` replica containing the fixture transcripts."""
+    home = tmp_path / "dot-claude"
+    project = home / "projects" / "-home-tester-demo"
+    project.mkdir(parents=True)
+    shutil.copy(FIXTURES / "basic.jsonl", project / "11111111-2222-3333-4444-555555555555.jsonl")
+    shutil.copy(FIXTURES / "messy.jsonl", project / "99999999-8888-7777-6666-555555555555.jsonl")
+    (home / "settings.json").write_text('{"model": "opus[1m]", "theme": "dark"}', encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(home))
+    return home

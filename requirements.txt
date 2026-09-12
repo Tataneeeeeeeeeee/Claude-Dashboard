@@ -1,0 +1,16 @@
+# Claude Code Dashboard - runtime dependencies.
+# Everything is local; none of these packages is used to reach the network.
+#
+# Lower bounds rather than exact pins, so the app installs cleanly on the
+# Python your machine already has (tested on 3.11 through 3.14).
+
+fastapi>=0.110
+uvicorn>=0.27
+pywebview>=5.0
+pystray>=0.19
+Pillow>=10.0
+watchdog>=4.0
+
+# Linux only: pywebview's GTK/WebKit backend needs PyGObject, which installs
+# best from the system package manager (python-gobject / python3-gi) along
+# with webkit2gtk. See the "Installation" section of README.md.

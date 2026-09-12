@@ -1,0 +1,25 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# PyInstaller output: rebuilt by build.sh / build.bat, never committed
+build/
+dist/
+*.spec.bak
+
+# Editors and OS clutter
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
