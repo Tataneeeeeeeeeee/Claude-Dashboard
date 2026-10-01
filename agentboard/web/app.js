@@ -341,7 +341,9 @@ const dashboard = {
       } catch {
         return;                                 // the server has gone away
       }
-      setTimeout(tick, 4000);
+      const config = (this.state.bootstrap && this.state.bootstrap.config) || {};
+      const seconds = Number(config.refresh_interval_seconds) || 5;
+      setTimeout(tick, Math.max(1, seconds) * 1000);
     };
     tick();
   },

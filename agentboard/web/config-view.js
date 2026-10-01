@@ -1,10 +1,10 @@
-/* The Config view: settings, pricing, instruction files, assets and todos.
+/* The Settings view: providers, general preferences and pricing, then the
+ * Claude Code panels (its config, CLAUDE.md, skills, todos) when that
+ * provider is enabled.
  *
- * Everything Claude Code owns is shown read-only. The only writes this
- * view can perform are the two the brief allows: editing a CLAUDE.md
- * (with an automatic timestamped backup) and changing the dashboard's own
- * configuration, which lives in ~/.agentboard and never touches
- * ~/.claude.
+ * Every tool's own files are shown read-only. The only writes this view
+ * performs are editing a CLAUDE.md (with an automatic timestamped backup)
+ * and changing the dashboard's own configuration in ~/.agentboard.
  *
  * Exposes `window.configView`.
  */
@@ -72,15 +72,63 @@
     ]);
   }
 
+  /** A new custom provider spec, offered as a starting point. */
+  const SPEC_TEMPLATE = `{
+  "id": "mytool",
+  "name": "My Tool",
+  "color": "#e11d48",
+  "home": "~/.mytool",
+  "glob": "sessions/**/*.jsonl",
+  "format": "jsonl",
+  "session": { "id": "session_id", "cwd": "cwd" },
+  "fields": {
+    "role": "role",
+    "text": "content",
+    "timestamp": "timestamp",
+    "model": "model",
+    "input_tokens": "usage.input_tokens",
+    "output_tokens": "usage.output_tokens"
+  }
+}`;
+
+  /** Capability flags in display order, with readable names. */
+  const CAPABILITIES = [
+    ['usage', 'Token usage'], ['cost', 'Cost estimate'], ['cache_tokens', 'Cache tokens'],
+    ['tool_calls', 'Tool calls'], ['thinking', 'Reasoning'], ['search', 'Search'],
+    ['live', 'Live updates'], ['resume', 'Resume'], ['delete', 'Delete'],
+    ['reported_cost', 'Reported cost'], ['instructions', 'Instruction files'],
+  ];
+
+  /** A provider badge, drawn as in the shell. */
+  function badge(provider, size = 'md') {
+    return el(`span.provider-badge.${size}`, {
+      style: `--p-color:${provider.color}`, title: provider.name,
+      role: 'img', 'aria-label': provider.name, text: provider.monogram || '?',
+    });
+  }
+
   const configView = {
-    state: { tab: 'settings', data: {}, assetFilter: '', assetKind: '' },
+    state: {
+      // ?tab= opens a section directly, e.g. ?view=config&tab=pricing.
+      tab: new URLSearchParams(window.location.search).get('tab') || 'providers',
+      data: {}, assetFilter: '', assetKind: '',
+      pricingProvider: new URLSearchParams(window.location.search).get('pricing') || '',
+      showAdd: false, draft: SPEC_TEMPLATE,
+    },
+
+    /** Show one tab, e.g. from the "change the path" link. */
+    openTab(tab) {
+      this.state.tab = tab;
+      if (this.state.data.providers) this.paint();
+    },
 
     /** Render the view, fetching everything it needs once. */
     async render(host) {
       this.host = host;
       host.replaceChildren(el('div.placeholder', {}, [el('span.spinner')]));
       try {
-        const [claudeConfig, appConfig, claudeMd, assets, todos, trash] = await Promise.all([
+        const [providers, claudeConfig, appConfig, claudeMd, assets, todos, trash] = await Promise.all([
+          this.get('/api/providers'),
           this.get('/api/claude-config'),
           this.get('/api/config'),
           this.get('/api/claude-md'),
@@ -88,7 +136,7 @@
           this.get('/api/todos'),
           this.get('/api/trash'),
         ]);
-        this.state.data = { claudeConfig, appConfig, claudeMd, assets, todos, trash };
+        this.state.data = { providers, claudeConfig, appConfig, claudeMd, assets, todos, trash };
         this.paint();
       } catch (error) {
         host.replaceChildren(el('div.placeholder', {}, [
@@ -109,22 +157,36 @@
     /** Build the tab chrome and the active panel. */
     paint() {
       const page = el('div.config-page');
-      const tabs = el('div.cfg-tabs');
+      const tabs = el('div.cfg-tabs', { role: 'tablist', 'aria-label': 'Settings sections' });
       const counts = this.state.data.assets.counts || {};
+      const providers = this.state.data.providers.providers;
+      const claude = providers.find((p) => p.id === 'claude');
       const entries = [
-        ['settings', 'Dashboard settings'],
-        ['pricing', 'Pricing table'],
-        ['claude', 'Claude Code config'],
+        ['providers', `Providers (${providers.length})`],
+        ['settings', 'General'],
+        ['pricing', 'Pricing'],
+      ];
+      // Claude Code's own configuration panels, only while it is enabled.
+      const claudeEntries = claude && claude.enabled ? [
+        ['claude', 'Config'],
         ['instructions', `CLAUDE.md (${this.state.data.claudeMd.files.length})`],
         ['assets', `Skills & commands (${Object.values(counts).reduce((a, b) => a + b, 0)})`],
         ['todos', `Todos (${this.state.data.todos.total})`],
-      ];
-      for (const [key, label] of entries) {
-        tabs.append(el('button', {
-          text: label,
-          class: this.state.tab === key ? 'on' : '',
-          onclick: () => { this.state.tab = key; this.paint(); },
-        }));
+      ] : [];
+      if (!entries.concat(claudeEntries).some(([key]) => key === this.state.tab)) {
+        this.state.tab = 'providers';
+      }
+      const tab = ([key, label]) => el('button', {
+        text: label,
+        role: 'tab',
+        'aria-selected': this.state.tab === key ? 'true' : 'false',
+        class: this.state.tab === key ? 'on' : '',
+        onclick: () => { this.state.tab = key; this.paint(); },
+      });
+      tabs.append(...entries.map(tab));
+      if (claudeEntries.length) {
+        tabs.append(el('span.cfg-tab-group', {}, [badge(claude, 'sm'), el('span', { text: 'Claude Code' })]));
+        tabs.append(...claudeEntries.map(tab));
       }
       page.append(tabs);
       page.append(el('div.cfg-panel', {}, [this.panel()]));
@@ -139,7 +201,191 @@
         case 'instructions': return this.instructionsPanel();
         case 'assets': return this.assetsPanel();
         case 'todos': return this.todosPanel();
-        default: return this.settingsPanel();
+        case 'settings': return this.settingsPanel();
+        default: return this.providersPanel();
+      }
+    },
+
+    /* --------------------------------------------------------- providers */
+
+    /** Every provider: detection, switch, paths, capabilities; and custom ones. */
+    providersPanel() {
+      const { providers, errors } = this.state.data.providers;
+      const wrap = el('div');
+      wrap.append(el('div.cfg-toolbar', {}, [
+        el('p.cfg-help', {
+          text: 'Agentboard reads each tool\u2019s local history, read-only. Switch a provider off to '
+            + 'hide it everywhere; point it at another folder if the tool keeps its data elsewhere.',
+        }),
+        el('button.bordered', { text: 'Detect again', onclick: () => this.providerAction('POST', '/api/providers/rescan', null, 'Providers detected again') }),
+        el('button.primary', {
+          text: this.state.showAdd ? 'Cancel' : 'Add a provider',
+          'aria-expanded': this.state.showAdd ? 'true' : 'false',
+          onclick: () => { this.state.showAdd = !this.state.showAdd; this.paint(); },
+        }),
+      ]));
+      if (this.state.showAdd) wrap.append(this.addProviderForm());
+      if ((errors || []).length) {
+        wrap.append(el('div.cfg-errors', { role: 'alert' }, [
+          el('strong', { text: 'Some provider specs could not be loaded' }),
+          ...errors.map((e) => el('div', {}, [el('code', { text: e.source }), ` \u2014 ${e.error}`])),
+        ]));
+      }
+      const list = el('div.provider-cards');
+      for (const provider of providers) list.append(this.providerCard(provider));
+      wrap.append(list);
+      return wrap;
+    },
+
+    /** One provider's card. */
+    providerCard(provider) {
+      const found = provider.detection;
+      const status = !provider.enabled ? ['off', 'Disabled']
+        : provider.stats.sessions ? ['ok', `${provider.stats.sessions} session${provider.stats.sessions === 1 ? '' : 's'}`]
+          : found.detected ? ['idle', 'Detected, no sessions yet'] : ['missing', 'Not detected'];
+      const id = `provider-${provider.id}`;
+      const field = (key, label, placeholder, help) => el('label.provider-field', {}, [
+        el('span', { text: label }),
+        el('input', {
+          type: 'text',
+          value: provider.settings[key] || '',
+          placeholder,
+          spellcheck: 'false',
+          'aria-describedby': `${id}-${key}-help`,
+          onchange: (event) => this.updateProvider(provider, { [key]: event.target.value.trim() }),
+        }),
+        el('span.cfg-help', { id: `${id}-${key}-help`, text: help }),
+      ]);
+
+      return el(provider.enabled ? 'article.provider-card' : 'article.provider-card.disabled', {
+        style: `--p-color:${provider.color}`,
+        'aria-labelledby': `${id}-name`,
+      }, [
+        el('div.provider-card-head', {}, [
+          badge(provider, 'lg'),
+          el('div.provider-card-title', {}, [
+            el('h3', { id: `${id}-name`, text: provider.name }),
+            el('div.cfg-help', { text: provider.description }),
+          ]),
+          el('span.status-pill', { 'data-status': status[0], text: status[1] }),
+          el('label.switch', { title: provider.enabled ? 'Switch off' : 'Switch on' }, [
+            el('input', {
+              type: 'checkbox',
+              role: 'switch',
+              'aria-label': `Enable ${provider.name}`,
+              ...(provider.enabled ? { checked: 'checked' } : {}),
+              onchange: (event) => this.updateProvider(provider, { enabled: event.target.checked }),
+            }),
+            el('span.switch-track', { 'aria-hidden': 'true' }),
+          ]),
+        ]),
+        el('p.provider-reason', {}, [
+          el('span', { text: found.reason }),
+        ]),
+        el('div.provider-fields', {}, [
+          field('path', 'Data folder', provider.default_home,
+            'Empty means the default shown in the box.'),
+          field('resume_command', 'Resume command',
+            provider.default_resume_command || 'not supported by default',
+            provider.default_resume_command
+              ? '{session_id} is substituted. Empty means the default.'
+              : 'Set one (with {session_id}) if the tool can reopen a session by id.'),
+        ]),
+        el('ul.capabilities', { 'aria-label': `${provider.name} capabilities` },
+          CAPABILITIES.map(([key, label]) => {
+            const on = key === 'resume' ? provider.can_resume : provider.capabilities[key];
+            return el('li', {
+              class: on ? 'on' : 'off',
+              title: on ? `${label}: supported` : `${label}: not supported by ${provider.name}`,
+            }, [el('span', { 'aria-hidden': 'true', text: on ? '\u2713' : '\u2013' }), ` ${label}`]);
+          })),
+        provider.custom ? el('div.provider-custom', {}, [
+          el('span.cfg-help', {}, ['Custom provider from ', el('code', { text: provider.source || 'config' })]),
+          (provider.source || '').startsWith('custom_providers')
+            ? el('button.bordered', {
+                text: 'Edit spec',
+                onclick: () => {
+                  this.state.showAdd = true;
+                  this.state.draft = JSON.stringify(provider.spec, null, 2);
+                  this.paint();
+                },
+              })
+            : null,
+          (provider.source || '').startsWith('custom_providers')
+            ? el('button.danger', {
+                text: 'Remove',
+                onclick: async () => {
+                  const ok = await window.dashboard.confirm('Remove provider',
+                    `Remove ${provider.name}? Its sessions leave the dashboard; the tool's own files are not touched.`);
+                  if (ok) this.providerAction('DELETE', `/api/providers/custom/${encodeURIComponent(provider.id)}`, null, `${provider.name} removed`);
+                },
+              })
+            : el('span.cfg-help', { text: 'Delete that file to remove it.' }),
+        ]) : null,
+      ]);
+    },
+
+    /** The form for a spec-defined provider. */
+    addProviderForm() {
+      const area = el('textarea.cfg-editor.spec-editor', {
+        spellcheck: 'false', 'aria-label': 'Provider spec (JSON)', rows: '18',
+        oninput: (event) => { this.state.draft = event.target.value; },
+      });
+      area.value = this.state.draft;
+      return el('div.cfg-section.add-provider', {}, [
+        el('div.cfg-body', {}, [
+          el('p.cfg-help', {
+            text: 'Describe where the tool keeps its sessions and which JSON fields hold each value. '
+              + 'Paths in "fields" are dotted (message.usage.input_tokens). Formats: "jsonl" (one record '
+              + 'per line) or "json" (a document; set "messages_path"). See README \u2192 How to add a new AI provider.',
+          }),
+          area,
+          el('div', { style: 'display:flex;gap:7px;margin-top:8px' }, [
+            el('button.primary', {
+              text: 'Save provider',
+              onclick: async () => {
+                let spec;
+                try {
+                  spec = JSON.parse(this.state.draft);
+                } catch (error) {
+                  window.dashboard.toast('That is not valid JSON', error.message, 'error');
+                  return;
+                }
+                const ok = await this.providerAction('POST', '/api/providers/custom', spec, `${spec.name || spec.id} saved`);
+                if (ok) { this.state.showAdd = false; this.state.draft = SPEC_TEMPLATE; this.paint(); }
+              },
+            }),
+            el('button.bordered', {
+              text: 'Reset to the template',
+              onclick: () => { this.state.draft = SPEC_TEMPLATE; this.paint(); },
+            }),
+          ]),
+        ]),
+      ]);
+    },
+
+    /** Save one provider's settings. */
+    updateProvider(provider, patch) {
+      return this.providerAction('PATCH', `/api/providers/${encodeURIComponent(provider.id)}`, patch,
+        `${provider.name} updated`);
+    },
+
+    /** Send a provider change, then refresh this view and the shell. */
+    async providerAction(method, path, body, message) {
+      try {
+        const result = await this.post(path, body === null ? {} : body, method);
+        this.state.data.providers = result;
+        this.state.data.appConfig = await this.get('/api/config');
+        this.paint();
+        if (window.dashboard) {
+          await window.dashboard.reload();
+          if (window.dashboard.usageReady && window.usageView) window.usageView.refresh();
+          window.dashboard.toast(message, '', 'ok');
+        }
+        return true;
+      } catch (error) {
+        window.dashboard.toast('Could not save', error.message, 'error');
+        return false;
       }
     },
 
@@ -198,18 +444,27 @@
         ]),
       ]);
 
-      const resume = el('div.cfg-row', {}, [
-        el('input.cfg-text', {
-          type: 'text', value: (config.terminal || {}).resume_command || '',
-          onchange: (event) => this.patch({ terminal: { resume_command: event.target.value } }),
+      const interval = el('div.cfg-row', {}, [
+        el('input.cfg-number', {
+          type: 'text', inputmode: 'numeric', 'aria-label': 'Refresh interval in seconds',
+          value: String(config.refresh_interval_seconds || 5),
+          onchange: (event) => {
+            const seconds = Number(event.target.value);
+            if (Number.isFinite(seconds) && seconds >= 1 && seconds <= 3600) {
+              this.patch({ refresh_interval_seconds: seconds });
+            } else {
+              event.target.value = String(config.refresh_interval_seconds || 5);
+              window.dashboard.toast('Use a number of seconds between 1 and 3600', '', 'warn');
+            }
+          },
         }),
         el('div', {}, [
-          el('div', { text: 'Resume command' }),
-          el('div.cfg-help', { text: '{session_id} is substituted. Runs in a new terminal.' }),
+          el('div', { text: 'Refresh interval (seconds)' }),
+          el('div.cfg-help', { text: 'How often the window checks for new activity from any provider.' }),
         ]),
       ]);
 
-      wrap.append(section('Behaviour', '', el('div', {}, [list, retention, editor, resume]), true));
+      wrap.append(section('Behaviour', '', el('div', {}, [list, interval, retention, editor]), true));
 
       const trash = this.state.data.trash;
       wrap.append(section(
@@ -229,8 +484,8 @@
         'a ZIP of every transcript',
         el('div', {}, [
           el('p.cfg-help', {
-            text: 'Copies the whole ~/.claude/projects tree into a single archive. '
-              + 'Nothing in ~/.claude is modified.',
+            text: 'Copies every Claude Code transcript (its projects folder) into a single '
+              + 'archive. Nothing in the tool\u2019s own data is modified.',
           }),
           el('button.primary', {
             text: 'Back up all transcripts…',
@@ -243,9 +498,8 @@
         'Where things live',
         '',
         el('div.cfg-paths', {}, [
-          ['Claude Code data', this.state.data.claudeConfig.settings_path.replace(/settings\.json$/, '')],
-          ['Global config', this.state.data.claudeConfig.global_path],
-          ['Dashboard config', 'see the About dialog'],
+          ...this.state.data.providers.providers.map((p) => [p.name, p.detection.root]),
+          ['Dashboard data', ((window.dashboard && window.dashboard.state.bootstrap) || { paths: {} }).paths.app_home || '~/.agentboard'],
         ].map(([label, value]) => el('div.cfg-pathrow', {}, [
           el('span.cfg-help', { text: label }),
           el('code', { text: value }),
@@ -256,15 +510,111 @@
 
     /* ----------------------------------------------------------- pricing */
 
-    /** The editable price table, with a clear caveat. */
+    /**
+     * Pricing: the global table, then each provider's own. A provider's
+     * effective price for a model is its own override, else the global
+     * table, else its built-in row; unknown models use its "default" row.
+     */
     pricingPanel() {
+      // Claude Code's prices are the global table itself, so it has no tab.
+      const priced = this.state.data.providers.providers.filter(
+        (p) => p.capabilities.cost && p.id !== 'claude');
+      const wrap = el('div');
+      const picker = el('div.segmented', { role: 'tablist', 'aria-label': 'Price table' });
+      const options = [['', 'Global \u00b7 Claude Code']].concat(priced.map((p) => [p.id, p.name]));
+      for (const [id, label] of options) {
+        const provider = priced.find((p) => p.id === id);
+        picker.append(el('button', {
+          role: 'tab',
+          'aria-selected': this.state.pricingProvider === id ? 'true' : 'false',
+          class: this.state.pricingProvider === id ? 'on' : '',
+          onclick: () => { this.state.pricingProvider = id; this.paint(); },
+        }, [provider ? badge(provider, 'sm') : null, el('span', { text: ' ' + label })]));
+      }
+      wrap.append(el('div', { style: 'margin-bottom:12px' }, [picker]));
+      const provider = priced.find((p) => p.id === this.state.pricingProvider);
+      wrap.append(provider ? this.providerPricing(provider) : this.globalPricing());
+      return wrap;
+    },
+
+    /** A provider's own price rows: built-in defaults plus its overrides. */
+    providerPricing(provider) {
+      const overrides = provider.settings.pricing || {};
+      const defaults = provider.default_pricing || {};
+      const models = Array.from(new Set([...Object.keys(defaults), ...Object.keys(overrides)]));
+      // Only the counters this provider records: OpenAI and Google bill
+      // cached reads but no cache writes.
+      const spec = provider.spec || {};
+      const writes = Boolean(spec.fields && spec.fields.cache_write_tokens);
+      const columns = ['input', 'output']
+        .concat(provider.capabilities.cache_tokens ? ['cache_read'] : [])
+        .concat(writes ? ['cache_write_5m'] : []);
+      const wrap = el('div');
+      wrap.append(el('p.cfg-help', {
+        style: 'margin:0 0 12px',
+        text: `US dollars per million tokens, used only for local estimates of ${provider.name} sessions. `
+          + 'Edited cells become overrides of the built-in price; "Reset" drops the override. '
+          + (models.length ? '' : `${provider.name} uses the global table; add a model to price it separately.`),
+      }));
+      const save = (next) => this.updateProvider(provider, { pricing: next });
+      const head = el('tr', {}, [el('th', { text: 'Model' }),
+        ...columns.map((c) => el('th', { text: c.replace(/_/g, ' ') })), el('th')]);
+      const rows = models.map((model) => {
+        const effective = { ...(defaults[model] || {}), ...(overrides[model] || {}) };
+        return el('tr', { class: overrides[model] ? 'overridden' : '' }, [
+          el('td', { text: model }),
+          ...columns.map((column) => el('td.num', {}, [el('input.cfg-price', {
+            type: 'text', inputmode: 'decimal', 'aria-label': `${model} ${column.replace(/_/g, ' ')}`,
+            value: effective[column] === undefined ? '' : String(effective[column]),
+            onchange: (event) => {
+              const value = Number(event.target.value);
+              if (!Number.isFinite(value) || value < 0) {
+                event.target.value = effective[column] === undefined ? '' : String(effective[column]);
+                return;
+              }
+              save({ ...overrides, [model]: { ...effective, [column]: value } });
+            },
+          })])),
+          el('td', {}, [overrides[model] ? el('button.bordered', {
+            text: 'Reset',
+            title: defaults[model] ? 'Go back to the built-in price' : 'Remove this row',
+            onclick: () => {
+              const next = { ...overrides };
+              delete next[model];
+              save(next);
+            },
+          }) : null]),
+        ]);
+      });
+      wrap.append(el('div.chart-table-wrap.pricing-wrap', {}, [
+        el('table.chart-table.pricing-table', {}, [el('thead', {}, [head]), el('tbody', {}, rows)]),
+      ]));
+      const name = el('input', { type: 'text', placeholder: 'model id, e.g. gpt-5.1', 'aria-label': 'New model id' });
+      wrap.append(el('div.add-model', {}, [
+        name,
+        el('button.bordered', {
+          text: 'Add model',
+          onclick: () => {
+            const model = name.value.trim();
+            if (!model) return;
+            const base = defaults.default || { input: 0, output: 0 };
+            save({ ...overrides, [model]: { ...base } });
+          },
+        }),
+      ]));
+      return wrap;
+    },
+
+    /** The global price table, shared by every provider. */
+    globalPricing() {
       const pricing = this.state.data.appConfig.pricing || {};
       const wrap = el('div');
       wrap.append(el('p.cfg-help', {
         style: 'margin:0 0 12px',
-        text: 'Prices are US dollars per million tokens and are used only for the local '
-          + 'estimates in this app. They are not billing data. Cache writes are charged by '
-          + 'time-to-live: the one-hour tier costs about twice the input rate.',
+        text: 'US dollars per million tokens, used only for local estimates, never billing data. '
+          + 'This table holds Claude Code\u2019s models and applies to every provider, under each '
+          + 'provider\u2019s own overrides. Cache writes are charged by time-to-live: the one-hour tier '
+          + 'costs about twice the input rate.',
       }));
 
       const columns = ['input', 'output', 'cache_write_5m', 'cache_write_1h', 'cache_read'];
@@ -290,14 +640,14 @@
         ])),
       ]));
 
-      wrap.append(el('div.chart-table-wrap', {}, [
+      wrap.append(el('div.chart-table-wrap.pricing-wrap', {}, [
         el('table.chart-table.pricing-table', {},
           [el('thead', {}, [head]), el('tbody', {}, rows)]),
       ]));
       wrap.append(el('p.cfg-help', {
         style: 'margin-top:10px',
-        text: 'A model with no row here falls back to the "default" row. Editing a price '
-          + 'recomputes every estimate in the app immediately.',
+        text: 'Claude Code models with no row here fall back to the "default" row; other providers '
+          + 'fall back to their own default. Editing a price recomputes every estimate immediately.',
       }));
       return wrap;
     },
