@@ -190,6 +190,8 @@
      */
     plotWidth(columns = 1) {
       const available = (this.host ? this.host.clientWidth : 0) || 1200;
+      // Below 900px the grid collapses to one column (see app.css).
+      if (available <= 900) columns = 1;
       const page = Math.min(1320, available) - 40;          // page padding
       const column = columns === 1 ? page : (page - 13) / 2; // grid gap
       return Math.max(320, Math.round(column - 30));         // card padding

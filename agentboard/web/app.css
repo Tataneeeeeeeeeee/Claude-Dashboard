@@ -164,6 +164,8 @@ select option {
 #app {
   display: grid;
   grid-template-rows: 42px 1fr 24px;
+  /* minmax(0, 1fr): a wide title bar must shrink, not widen the page. */
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -194,7 +196,9 @@ select option {
 
 .titlebar .spacer { flex: 1; }
 
-.search-wrap { position: relative; width: 300px; }
+.search-wrap { position: relative; width: 300px; flex: 0 1 300px; min-width: 140px; }
+.titlebar { min-width: 0; overflow: hidden; }
+.statusbar { min-width: 0; overflow: hidden; white-space: nowrap; }
 .search-wrap input { padding-left: 27px; padding-right: 46px; }
 .search-wrap .icon {
   position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
@@ -1591,3 +1595,13 @@ html.booting *, html.booting *::before, html.booting *::after { transition: none
 
 /* Price tables are edited in place, so they are never clipped. */
 .pricing-wrap { max-height: none; overflow: visible; }
+
+@media (max-width: 980px) {
+  .brand-name { display: none; }
+  #btn-theme { display: none; }
+  .search-wrap kbd { display: none; }
+  .search-wrap input { padding-right: 9px; }
+  #view-sessions { grid-template-columns: minmax(240px, 38%) minmax(0, 1fr); }
+  .usage-filters { flex-wrap: wrap; }
+  #status-corpus { overflow: hidden; text-overflow: ellipsis; }
+}
