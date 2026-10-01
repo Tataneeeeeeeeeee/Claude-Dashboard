@@ -33,6 +33,7 @@ from typing import Any, Dict, List
 
 from ..model import EMPTY_DAY_TOTALS, EMPTY_MODEL_TOTALS, ParsedMessage, SessionMeta, empty_usage, parse_timestamp
 from .base import Capabilities, ProviderAdapter
+from .registry import register
 from .common import clean_tool_result_content, iter_entries, truncate
 
 __all__ = ["CodexAdapter", "INJECTED_PREFIXES"]
@@ -192,6 +193,7 @@ def _usage_of_last(info: Dict[str, Any]) -> Dict[str, int] | None:
     return _usage_delta(None, last)
 
 
+@register
 class CodexAdapter(ProviderAdapter):
     """OpenAI's Codex CLI."""
 

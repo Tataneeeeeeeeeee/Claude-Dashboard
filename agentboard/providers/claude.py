@@ -37,6 +37,7 @@ from ..model import (
 )
 from ..paths import claude_home, claude_projects_dir
 from .base import Capabilities, ProviderAdapter, SearchEntry
+from .registry import register
 from .common import (
     block_list,
     clean_tool_result_content,
@@ -632,6 +633,7 @@ def searchable_text(entry: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+@register
 class ClaudeAdapter(ProviderAdapter):
     """Anthropic's Claude Code CLI."""
 

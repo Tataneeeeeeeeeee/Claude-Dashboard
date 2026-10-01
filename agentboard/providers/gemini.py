@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Set
 
 from ..model import EMPTY_DAY_TOTALS, EMPTY_MODEL_TOTALS, ParsedMessage, SessionMeta, empty_usage, parse_timestamp
 from .base import Capabilities, ProviderAdapter
+from .registry import register
 from .common import clean_tool_result_content, truncate
 
 __all__ = ["GeminiAdapter", "project_hash"]
@@ -118,6 +119,7 @@ def _load(path: Path) -> Dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+@register
 class GeminiAdapter(ProviderAdapter):
     """Google's Gemini CLI."""
 

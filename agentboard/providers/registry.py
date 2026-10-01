@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Type
 
 from .base import ProviderAdapter
 
-__all__ = ["BUILTIN", "register", "Registry", "get_registry", "reload_registry"]
+__all__ = ["BUILTIN", "BUILTIN_MODULES", "register", "Registry", "get_registry", "reload_registry"]
 
 #: Adapter classes shipped with the application, in display order.
 BUILTIN: Dict[str, Type[ProviderAdapter]] = {}
@@ -35,14 +35,18 @@ def register(cls: Type[ProviderAdapter]) -> Type[ProviderAdapter]:
     return cls
 
 
-def _load_builtins() -> None:
-    """Import the built-in adapters so they register themselves."""
-    from .claude import ClaudeAdapter
-    from .codex import CodexAdapter
-    from .gemini import GeminiAdapter
+#: Modules under ``agentboard.providers`` holding built-in adapters, in
+#: display order.  Adding an adapter written in Python is one line here plus
+#: ``@register`` on its class.
+BUILTIN_MODULES = ("claude", "codex", "gemini")
 
-    for cls in (ClaudeAdapter, CodexAdapter, GeminiAdapter):
-        BUILTIN.setdefault(cls.id, cls)
+
+def _load_builtins() -> None:
+    """Import the built-in adapter modules; their classes register themselves."""
+    import importlib
+
+    for name in BUILTIN_MODULES:
+        importlib.import_module(f"{__package__}.{name}")
 
 
 class Registry:

@@ -334,3 +334,13 @@ def test_detection_keeps_the_foreground_in_both_launchers():
         text = read(script)
         block = text[text.index("Launcher for Agentboard"):]
         assert "--detect-providers" in block, script
+
+
+def test_the_spec_declares_every_builtin_provider():
+    """The registry imports adapters by name, which PyInstaller cannot see."""
+    from agentboard.providers.registry import BUILTIN_MODULES
+
+    text = read("agentboard.spec")
+    for name in BUILTIN_MODULES:
+        assert f'"agentboard.providers.{name}"' in text, name
+    assert '"agentboard.providers.generic"' in text

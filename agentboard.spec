@@ -22,6 +22,7 @@ datas = [
     (str(PROJECT / "assets" / "icon.png"), "assets"),
     (str(PROJECT / "assets" / "icon.ico"), "assets"),
     (str(PROJECT / "assets" / "icon.icns"), "assets"),
+    (str(PROJECT / "examples"), "examples"),
 ]
 
 # Uvicorn and watchdog load parts of themselves by name, so the analysis
@@ -43,6 +44,12 @@ hiddenimports = [
     "agentboard.content",
     "agentboard.exporters",
     "agentboard.watcher",
+    "agentboard.detect",
+    # Provider adapters are imported by name from the registry.
+    "agentboard.providers.claude",
+    "agentboard.providers.codex",
+    "agentboard.providers.gemini",
+    "agentboard.providers.generic",
 ]
 if sys.platform == "win32":
     hiddenimports += ["webview.platforms.edgechromium", "clr_loader", "pythonnet"]
