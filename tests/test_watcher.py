@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from claude_dashboard.watcher import FileWatcher, start_watcher
+from agentboard.watcher import FileWatcher, start_watcher
 
 
 @pytest.fixture

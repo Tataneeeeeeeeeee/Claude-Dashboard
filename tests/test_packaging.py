@@ -25,7 +25,7 @@ def read(name: str) -> str:
 @pytest.mark.parametrize("name", [
     "install.sh", "install.ps1", "start.sh", "start.bat",
     "build.sh", "build.bat", "run_tests.sh",
-    "claude-dashboard.spec", "run_app.py", "config.json",
+    "agentboard.spec", "run_app.py", "config.json",
     "README.md", "SCHEMA.md", "requirements.txt",
 ])
 def test_every_shipped_script_exists_and_is_not_empty(name):
@@ -54,7 +54,7 @@ def test_shell_scripts_are_executable(name):
 
 def test_installers_copy_everything_the_app_needs_at_runtime():
     """The copy list must cover every file run_app.py depends on."""
-    required = {"claude_dashboard", "assets", "requirements.txt", "run_app.py"}
+    required = {"agentboard", "assets", "requirements.txt", "run_app.py"}
     for script in ("install.sh", "install.ps1"):
         text = read(script)
         for item in required:
@@ -85,7 +85,7 @@ def test_the_generated_launcher_is_valid_and_forwards_arguments(tmp_path):
     rendered = body.group(1).replace("$PREFIX", str(tmp_path))
     rendered = re.sub(r"\\([$`])", r"\1", rendered)
 
-    launcher = tmp_path / "claude-dashboard"
+    launcher = tmp_path / "agentboard"
     launcher.write_text(rendered, encoding="utf-8")
     result = subprocess.run(["bash", "-n", str(launcher)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -116,7 +116,7 @@ def test_both_launchers_keep_the_foreground_for_printing_options():
     """--check and friends write to the terminal; detaching hides them."""
     for script, flag in (("install.sh", "--check"), ("install.ps1", "--check")):
         text = read(script)
-        block = text[text.index("Launcher for Claude Code Dashboard"):]
+        block = text[text.index("Launcher for Agentboard"):]
         for option in ("--check", "--version", "--headless", "--debug"):
             assert option in block, f"{script} does not special-case {option}"
         assert "--foreground" in block, f"{script} has no escape hatch"
@@ -137,14 +137,14 @@ def test_the_windows_launcher_strips_foreground_without_shift():
 
 
 def test_uninstall_never_removes_user_data():
-    """Neither installer may delete ~/.claude or ~/.claude-dashboard."""
+    """Neither installer may delete ~/.claude or ~/.agentboard."""
     for script in ("install.sh", "install.ps1"):
         text = read(script)
         body = text.split("uninstall")[1] if "uninstall" in text else text
         assert "rm -rf \"$HOME/.claude\"" not in body
-        assert ".claude-dashboard\" -Recurse" not in body
+        assert ".agentboard\" -Recurse" not in body
         # And it should say so.
-        assert ".claude-dashboard" in text
+        assert ".agentboard" in text
 
 
 def test_uninstall_refreshes_rather_than_deletes_the_shared_desktop_cache():
@@ -161,8 +161,8 @@ def test_the_desktop_entry_matches_the_real_window_class():
 
 
 def test_the_spec_bundles_the_web_assets_and_the_icons():
-    text = read("claude-dashboard.spec")
-    assert '"claude_dashboard/web"' in text
+    text = read("agentboard.spec")
+    assert '"agentboard/web"' in text
     for icon in ("icon.png", "icon.ico", "icon.icns"):
         assert icon in text
     assert "console=False" in text, "the build must be windowed"
@@ -170,13 +170,13 @@ def test_the_spec_bundles_the_web_assets_and_the_icons():
 
 def test_the_spec_constrains_the_gtk_theme_collection():
     """Without this the Linux build balloons past 300 MB of icon themes."""
-    text = read("claude-dashboard.spec")
+    text = read("agentboard.spec")
     assert "hooksconfig" in text
     assert '"icons": ["Adwaita"]' in text
 
 
 def test_the_spec_declares_the_imports_pyinstaller_cannot_see():
-    text = read("claude-dashboard.spec")
+    text = read("agentboard.spec")
     for name in ("uvicorn.loops.auto", "uvicorn.lifespan.on", "watchdog.observers"):
         assert name in text, f"{name} is loaded by name and must be declared"
 
@@ -195,7 +195,7 @@ def test_the_default_config_matches_the_code():
     """config.json in the repository is the documented default."""
     import json
 
-    from claude_dashboard.config import DEFAULT_CONFIG
+    from agentboard.config import DEFAULT_CONFIG
 
     shipped = json.loads(read("config.json"))
     assert shipped == DEFAULT_CONFIG, "config.json has drifted from DEFAULT_CONFIG"
@@ -205,7 +205,7 @@ def test_the_readme_documents_the_one_command_install():
     text = read("README.md")
     assert "curl -fsSL" in text
     assert "install.ps1 | iex" in text
-    assert "claude-dashboard" in text
+    assert "agentboard" in text
     assert "--uninstall" in text
 
 
@@ -217,14 +217,14 @@ def test_the_readme_install_command_needs_no_environment_variable():
     install = text[text.index("## Install"):text.index("## Building")]
     curl = re.search(r"curl -fsSL (\S+/install\.sh) \| bash$", install, re.M)
     assert curl, "the README has no bare `curl ... | install.sh | bash` line"
-    assert "CLAUDE_DASHBOARD_SRC=" not in curl.group(0)
+    assert "AGENTBOARD_SRC=" not in curl.group(0)
 
 
 def test_the_installers_default_to_the_published_source():
     """Piped into a shell with no checkout, they must know where to fetch."""
     shell = read("install.sh")
     assert "DEFAULT_SRC=" in shell
-    assert 'SRC="${CLAUDE_DASHBOARD_SRC:-$DEFAULT_SRC}"' in shell
+    assert 'SRC="${AGENTBOARD_SRC:-$DEFAULT_SRC}"' in shell
 
     powershell = read("install.ps1")
     assert "archive/refs/heads/main.zip" in powershell
@@ -256,9 +256,9 @@ def _run_installer(tmp_path, src, extra_path=""):
         env={
             "HOME": str(tmp_path),
             "PATH": "/usr/bin:/bin" + extra_path,
-            "CLAUDE_DASHBOARD_PREFIX": str(tmp_path / "prefix"),
-            "CLAUDE_DASHBOARD_BIN": str(tmp_path / "bin"),
-            "CLAUDE_DASHBOARD_SRC": src,
+            "AGENTBOARD_PREFIX": str(tmp_path / "prefix"),
+            "AGENTBOARD_BIN": str(tmp_path / "bin"),
+            "AGENTBOARD_SRC": src,
         },
     )
 

@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from claude_dashboard.server import BackgroundServer  # noqa: E402
+from agentboard.server import BackgroundServer  # noqa: E402
 
 
 def main() -> int:

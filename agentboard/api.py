@@ -1,11 +1,11 @@
 """FastAPI application: the local HTTP surface consumed by the webview.
 
 The server binds to ``127.0.0.1`` on a random free port and is never exposed
-on another interface (see :mod:`claude_dashboard.server`).  It makes no
+on another interface (see :mod:`agentboard.server`).  It makes no
 outbound requests of any kind.
 
 Handlers are thin: they resolve query parameters, call into
-:mod:`claude_dashboard.indexer` or :mod:`claude_dashboard.usage`, and return
+:mod:`agentboard.indexer` or :mod:`agentboard.usage`, and return
 JSON.  Errors become ``{"detail": ...}`` with a useful message, which the UI
 surfaces as a toast rather than a blank screen.
 """
@@ -181,7 +181,7 @@ async def _lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
     app = FastAPI(
-        title="Claude Code Dashboard",
+        title="Agentboard",
         version=__version__,
         docs_url=None,
         redoc_url=None,

@@ -172,7 +172,7 @@ def save_claude_md(
     project_paths: Sequence[str] = (),
 ) -> Dict[str, Any]:
     """Write an instruction file, taking a timestamped backup first.
-    The backup lives under ``~/.claude-dashboard/backups`` and is never
+    The backup lives under ``~/.agentboard/backups`` and is never
     pruned, so an accidental save is always recoverable.
     """
     path = validate_claude_md_path(candidate, project_paths)

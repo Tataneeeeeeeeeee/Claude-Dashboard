@@ -1,4 +1,4 @@
-"""User configuration, persisted to ``~/.claude-dashboard/config.json``.
+"""User configuration, persisted to ``~/.agentboard/config.json``.
 
 The file is created from :data:`DEFAULT_CONFIG` on first run and merged
 key-by-key on every load, so a config written by an older version keeps

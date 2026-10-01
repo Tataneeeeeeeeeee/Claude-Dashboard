@@ -1,7 +1,7 @@
 """Render a parsed conversation to Markdown, self-contained HTML or JSON.
 
 All three take the dictionary produced by
-:func:`claude_dashboard.parser.parse_conversation` so the exported file shows
+:func:`agentboard.parser.parse_conversation` so the exported file shows
 exactly what the viewer shows, including the same tool-output truncation.
 
 The HTML export embeds its own stylesheet and references nothing external, so
@@ -216,7 +216,7 @@ def to_markdown(
     out.append("---")
     out.append("")
     out.append(
-        "*Exported by Claude Code Dashboard on "
+        "*Exported by Agentboard on "
         f"{datetime.now().astimezone().strftime('%Y-%m-%d %H:%M %Z')}. "
         "Costs shown are local estimates, not billing data.*"
     )
@@ -366,7 +366,7 @@ def to_html(
         parts.append("</div>")
 
     parts.append(
-        "<footer>Exported by Claude Code Dashboard on "
+        "<footer>Exported by Agentboard on "
         f"{esc(datetime.now().astimezone().strftime('%Y-%m-%d %H:%M %Z'))}. "
         "Costs shown are local estimates, not billing data.</footer>"
     )
@@ -381,7 +381,7 @@ def to_json(parsed: Dict[str, Any]) -> str:
     JSONL; the untouched source is always still on disk.
     """
     payload = {
-        "exported_by": "Claude Code Dashboard",
+        "exported_by": "Agentboard",
         "exported_at": datetime.now().astimezone().isoformat(),
         "note": "Normalised view of the transcript. Costs are local estimates.",
         "info": parsed.get("info", {}),

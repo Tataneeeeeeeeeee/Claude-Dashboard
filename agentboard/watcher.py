@@ -100,7 +100,7 @@ class FileWatcher:
             return False
 
         self._worker = threading.Thread(
-            target=self._drain, name="claude-dashboard-watch", daemon=True
+            target=self._drain, name="agentboard-watch", daemon=True
         )
         self._worker.start()
         return True

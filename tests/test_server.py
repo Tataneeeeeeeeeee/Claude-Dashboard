@@ -8,7 +8,7 @@ import urllib.request
 
 import pytest
 
-from claude_dashboard.server import BackgroundServer
+from agentboard.server import BackgroundServer
 
 
 def test_server_refuses_any_non_loopback_interface():

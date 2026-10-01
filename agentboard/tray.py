@@ -35,7 +35,7 @@ def start_tray(
     on_open: Callable[[], None],
     on_refresh: Callable[[], None],
     on_quit: Callable[[], None],
-    title: str = "Claude Code Dashboard",
+    title: str = "Agentboard",
 ) -> Optional[TrayHandle]:
     """Run a tray icon on its own thread.
 
@@ -60,7 +60,7 @@ def start_tray(
         pystray.MenuItem("Quit", lambda *_: on_quit()),
     )
     try:
-        icon = pystray.Icon("claude-dashboard", image, title, menu)
+        icon = pystray.Icon("agentboard", image, title, menu)
     except Exception:
         return None
 
@@ -71,6 +71,6 @@ def start_tray(
         except Exception:
             pass
 
-    thread = threading.Thread(target=run, name="claude-dashboard-tray", daemon=True)
+    thread = threading.Thread(target=run, name="agentboard-tray", daemon=True)
     thread.start()
     return TrayHandle(icon, thread)

@@ -1,4 +1,4 @@
-"""Claude Code Dashboard - a local, offline viewer for ``~/.claude``.
+"""Agentboard - a local, offline dashboard for AI coding assistants.
 
 The package is split into narrow modules:
 
@@ -14,4 +14,8 @@ The package is split into narrow modules:
 """
 
 __version__ = "1.0.0"
-__all__ = ["__version__"]
+
+#: The product name shown in titles, menus and dialogs.
+PRODUCT_NAME = "Agentboard"
+
+__all__ = ["__version__", "PRODUCT_NAME"]

@@ -45,4 +45,4 @@ if [ ! -f "$stamp" ] || [ requirements.txt -nt "$stamp" ]; then
   touch "$stamp"
 fi
 
-exec "$VPY" -m claude_dashboard.app "$@"
+exec "$VPY" -m agentboard.app "$@"

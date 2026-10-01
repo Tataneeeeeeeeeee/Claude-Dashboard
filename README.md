@@ -1,4 +1,4 @@
-# Claude Code Dashboard
+# Agentboard
 
 A local desktop application for browsing, analysing and tidying the data
 Claude Code keeps in `~/.claude`.
@@ -46,7 +46,7 @@ viewer.
 
 ## Install
 
-One command. It installs the app and gives you a `claude-dashboard`
+One command. It installs the app and gives you a `agentboard`
 command you can run from anywhere.
 
 **macOS and Linux**
@@ -64,7 +64,7 @@ irm https://raw.githubusercontent.com/Tataneeeeeeeeeee/Claude-Dashboard/main/ins
 Then:
 
 ```sh
-claude-dashboard
+agentboard
 ```
 
 That is the whole installation. You need **Python 3.11 or newer**; the
@@ -90,8 +90,8 @@ system. Neither needs anything installed.
 
 | | |
 | --- | --- |
-| Installs to | `~/.local/share/claude-dashboard` (Windows: `%LOCALAPPDATA%\ClaudeCodeDashboard`) |
-| Creates | `claude-dashboard` in `~/.local/bin` (Windows: `WindowsApps`) |
+| Installs to | `~/.local/share/agentboard` (Windows: `%LOCALAPPDATA%\Agentboard`) |
+| Creates | `agentboard` in `~/.local/bin` (Windows: `WindowsApps`) |
 | Adds | a desktop entry, so the app appears in your application menu |
 | Touches | nothing else, and never `~/.claude` |
 
@@ -105,15 +105,15 @@ is detached, so closing the terminal does not close it.
 The command forwards every option:
 
 ```sh
-claude-dashboard --foreground            # stay attached and watch the output
-claude-dashboard --check                 # report the webview backend
-claude-dashboard --headless --browser    # run without a native window
-claude-dashboard --debug                 # open the webview inspector
+agentboard --foreground            # stay attached and watch the output
+agentboard --check                 # report the webview backend
+agentboard --headless --browser    # run without a native window
+agentboard --debug                 # open the webview inspector
 ```
 
 Anything that prints to the terminal keeps the foreground automatically,
 so `--check` and `--version` still show their output. Everything a
-detached run writes goes to `~/.claude-dashboard/launch.log`, and if the
+detached run writes goes to `~/.agentboard/launch.log`, and if the
 app dies during start-up the command prints the reason instead of
 returning quietly.
 
@@ -134,17 +134,17 @@ irm https://raw.githubusercontent.com/Tataneeeeeeeeeee/Claude-Dashboard/main/ins
 
 This removes the application, its virtual environment and the launcher.
 Your data is left alone: `~/.claude` belongs to Claude Code, and
-`~/.claude-dashboard` holds this app's config, cache, trash and backups.
+`~/.agentboard` holds this app's config, cache, trash and backups.
 Delete that second directory by hand if you want it gone too.
 
 ### Installing somewhere else, or from a fork
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Tataneeeeeeeeeee/Claude-Dashboard/main/install.sh | CLAUDE_DASHBOARD_PREFIX=/opt/claude-dashboard \
-  CLAUDE_DASHBOARD_BIN=/usr/local/bin bash
+curl -fsSL https://raw.githubusercontent.com/Tataneeeeeeeeeee/Claude-Dashboard/main/install.sh | AGENTBOARD_PREFIX=/opt/agentboard \
+  AGENTBOARD_BIN=/usr/local/bin bash
 ```
 
-`CLAUDE_DASHBOARD_SRC` overrides where the source comes from, and accepts a
+`AGENTBOARD_SRC` overrides where the source comes from, and accepts a
 git URL, a `.tar.gz`, a `.zip` or a local path.
 
 > If the installer warns that the launcher directory is not on your `PATH`,
@@ -168,9 +168,9 @@ The result is in `dist/`:
 
 | Platform | Output |
 | --- | --- |
-| Windows | `dist\ClaudeCodeDashboard.exe` |
-| macOS | `dist/Claude Code Dashboard.app` |
-| Linux | `dist/ClaudeCodeDashboard` |
+| Windows | `dist\Agentboard.exe` |
+| macOS | `dist/Agentboard.app` |
+| Linux | `dist/Agentboard` |
 
 It is a single windowed file that opens with a double-click, needs no
 Python installation, and shows no terminal window. Add `--clean` to rebuild
@@ -184,7 +184,7 @@ installed. Windows and macOS bundles are self-contained.
 
 ## Configuration
 
-Settings live in `~/.claude-dashboard/config.json`, which the application
+Settings live in `~/.agentboard/config.json`, which the application
 creates on first run. A copy of the defaults is in `config.json` in this
 repository. Most of it is editable from the **Config** tab.
 
@@ -272,7 +272,7 @@ matter most:
 
 Transcripts are streamed, never loaded whole: the largest on the reference
 install is 30 MB. A cold index of 190 MB takes about half a second, and
-results are cached in `~/.claude-dashboard/cache.json` keyed by path, mtime
+results are cached in `~/.agentboard/cache.json` keyed by path, mtime
 and size, so later launches are instant.
 
 Search needs no term index. It reads each file as raw bytes and rejects
@@ -302,12 +302,12 @@ thread and exits, leaving nothing behind.
 
 The front end is plain HTML, CSS and JavaScript with no build step and no
 CDN. The Markdown renderer, the syntax highlighter and the charts are all
-in `claude_dashboard/web/`, so the application works with no network.
+in `agentboard/web/`, so the application works with no network.
 
 ### Safety
 
 Deletion is a **move**, never an unlink. Files go to
-`~/.claude-dashboard/trash/<timestamp>/` with a manifest, and can be
+`~/.agentboard/trash/<timestamp>/` with a manifest, and can be
 restored until the retention period expires.
 
 Every destructive call is validated first. A path is rejected unless it is
@@ -320,7 +320,7 @@ moves, and a failure part-way rolls back.
 The `CLAUDE.md` editor is equally narrow: the target must be named
 `CLAUDE.md` or `CLAUDE.local.md`, must not be a symlink, and must sit in
 `~/.claude` or in a project the index already knows. A timestamped copy
-goes to `~/.claude-dashboard/backups/` before every save.
+goes to `~/.agentboard/backups/` before every save.
 
 Favourites, tags and notes are kept in the dashboard's own config, so
 annotating a session never modifies Claude Code's data.
@@ -373,8 +373,8 @@ your real data:
 
 | Variable | Effect |
 | --- | --- |
-| `CLAUDE_DASHBOARD_CLAUDE_HOME` | read a different `~/.claude` |
-| `CLAUDE_DASHBOARD_HOME` | put config, cache and trash elsewhere |
+| `AGENTBOARD_CLAUDE_HOME` | read a different `~/.claude` |
+| `AGENTBOARD_HOME` | put config, cache and trash elsewhere |
 
 ---
 

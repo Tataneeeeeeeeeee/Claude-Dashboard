@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from claude_dashboard.indexer import SessionIndex
-from claude_dashboard.paths import cache_path
+from agentboard.indexer import SessionIndex
+from agentboard.paths import cache_path
 
 
 @pytest.fixture

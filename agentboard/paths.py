@@ -3,8 +3,8 @@
 Two roots matter:
 
 ``claude_home()``     ``~/.claude`` - read-only except for the explicit
-                      operations in :mod:`claude_dashboard.actions`.
-``app_home()``        ``~/.claude-dashboard`` - everything this app owns
+                      operations in :mod:`agentboard.actions`.
+``app_home()``        ``~/.agentboard`` - everything this app owns
                       (config, cache, trash, backups, notes).
 
 The module also holds :func:`decode_project_dir`, the best-effort inverse of
@@ -24,6 +24,8 @@ __all__ = [
     "claude_projects_dir",
     "claude_json_path",
     "app_home",
+    "env",
+    "migrate_legacy_home",
     "config_path",
     "cache_path",
     "trash_dir",
@@ -35,15 +37,38 @@ __all__ = [
 ]
 
 
+#: Environment variables from before the project was renamed, still honoured
+#: so existing scripts and shells keep working.
+LEGACY_ENV = {
+    "AGENTBOARD_HOME": "CLAUDE_DASHBOARD_HOME",
+    "AGENTBOARD_CLAUDE_HOME": "CLAUDE_DASHBOARD_CLAUDE_HOME",
+    "AGENTBOARD_BUNDLE": "CLAUDE_DASHBOARD_BUNDLE",
+}
+
+#: Where this application kept its data before the rename.
+LEGACY_APP_DIR = ".claude-dashboard"
+
+
+def env(var: str) -> str | None:
+    """Read ``$var``, falling back to its pre-rename name."""
+    value = os.environ.get(var)
+    if value:
+        return value
+    legacy = LEGACY_ENV.get(var)
+    if not legacy:
+        return None
+    return os.environ.get(legacy) or None
+
+
 def _env_path(var: str, default: Path) -> Path:
     """Return ``$var`` as a path when set, else *default*."""
-    raw = os.environ.get(var)
+    raw = env(var)
     return Path(raw).expanduser() if raw else default
 
 
 def claude_home() -> Path:
     """Root of the Claude Code data directory (``~/.claude``)."""
-    return _env_path("CLAUDE_DASHBOARD_CLAUDE_HOME", Path.home() / ".claude")
+    return _env_path("AGENTBOARD_CLAUDE_HOME", Path.home() / ".claude")
 
 
 def claude_projects_dir() -> Path:
@@ -53,17 +78,42 @@ def claude_projects_dir() -> Path:
 
 def claude_json_path() -> Path:
     """Global Claude Code state file (``~/.claude.json``)."""
-    override = os.environ.get("CLAUDE_DASHBOARD_CLAUDE_HOME")
+    override = env("AGENTBOARD_CLAUDE_HOME")
     if override:
         return Path(override).expanduser().parent / ".claude.json"
     return Path.home() / ".claude.json"
 
 
 def app_home() -> Path:
-    """Directory owned by this application, created on demand."""
-    path = _env_path("CLAUDE_DASHBOARD_HOME", Path.home() / ".claude-dashboard")
+    """Directory owned by this application, created on demand.
+
+    The first run after the rename moves ``~/.claude-dashboard`` here, so
+    config, annotations, cache, trash and backups carry over.
+    """
+    override = env("AGENTBOARD_HOME")
+    if override:
+        path = Path(override).expanduser()
+    else:
+        path = Path.home() / ".agentboard"
+        migrate_legacy_home(path)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def migrate_legacy_home(target: Path, legacy: Path | None = None) -> bool:
+    """Move the pre-rename data directory to *target* if only it exists.
+
+    A rename, not a copy: on the same filesystem it is atomic, and nothing
+    is ever deleted.  Returns ``True`` when a move happened.
+    """
+    source = legacy if legacy is not None else Path.home() / LEGACY_APP_DIR
+    if target.exists() or not source.is_dir() or source.is_symlink():
+        return False
+    try:
+        source.rename(target)
+    except OSError:
+        return False
+    return True
 
 
 def config_path() -> Path:

@@ -37,12 +37,12 @@ echo "installing build dependencies"
 "$VPY" tools/make_icon.py >/dev/null
 
 echo "building"
-"$VPY" -m PyInstaller claude-dashboard.spec --noconfirm --log-level WARN
+"$VPY" -m PyInstaller agentboard.spec --noconfirm --log-level WARN
 
 if [ "$(uname -s)" = "Darwin" ]; then
-  target="dist/Claude Code Dashboard.app"
+  target="dist/Agentboard.app"
 else
-  target="dist/ClaudeCodeDashboard"
+  target="dist/Agentboard"
 fi
 
 if [ ! -e "$target" ]; then

@@ -1,7 +1,7 @@
 """Token, cost and tool aggregation over the session index.
 
 Everything here reads the pre-computed buckets on
-:class:`~claude_dashboard.parser.SessionMeta` - daily token totals, per-model
+:class:`~agentboard.parser.SessionMeta` - daily token totals, per-model
 totals, tool counts and the day/hour heatmap - so a full dashboard refresh
 costs a dictionary walk rather than another pass over 183 MB of JSONL.
 

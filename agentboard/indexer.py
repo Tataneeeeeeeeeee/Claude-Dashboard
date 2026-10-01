@@ -1,9 +1,9 @@
 """Session index, on-disk cache and full-text search.
 
-The index is a dictionary of :class:`~claude_dashboard.parser.SessionMeta`
+The index is a dictionary of :class:`~agentboard.parser.SessionMeta`
 keyed by absolute transcript path, rebuilt by streaming every ``.jsonl`` under
 ``~/.claude/projects``.  Results are cached in
-``~/.claude-dashboard/cache.json`` keyed by ``(path, mtime, size)``, so a
+``~/.agentboard/cache.json`` keyed by ``(path, mtime, size)``, so a
 restart re-scans only what changed.  On the reference install a cold scan of
 189 MB takes about half a second; a warm start is instant.
 

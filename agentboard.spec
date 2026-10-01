@@ -1,14 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller build for Claude Code Dashboard.
+"""PyInstaller build for Agentboard.
 
 Produces a single windowed executable that launches with a double-click,
 needs no Python installation, and shows no console window.
 
-    pyinstaller claude-dashboard.spec --noconfirm
+    pyinstaller agentboard.spec --noconfirm
 
 The web assets and the icons are not importable modules, so they are
 declared as data and located at runtime through ``sys._MEIPASS``; see
-``claude_dashboard.paths`` and ``claude_dashboard.api.WEB_DIR``.
+``agentboard.paths`` and ``agentboard.api.WEB_DIR``.
 """
 
 import sys
@@ -18,7 +18,7 @@ from pathlib import Path
 PROJECT = Path(SPECPATH).resolve()
 
 datas = [
-    (str(PROJECT / "claude_dashboard" / "web"), "claude_dashboard/web"),
+    (str(PROJECT / "agentboard" / "web"), "agentboard/web"),
     (str(PROJECT / "assets" / "icon.png"), "assets"),
     (str(PROJECT / "assets" / "icon.ico"), "assets"),
     (str(PROJECT / "assets" / "icon.icns"), "assets"),
@@ -39,10 +39,10 @@ hiddenimports = [
     "uvicorn.lifespan.on",
     "watchdog.observers",
     "watchdog.observers.polling",
-    "claude_dashboard.actions",
-    "claude_dashboard.content",
-    "claude_dashboard.exporters",
-    "claude_dashboard.watcher",
+    "agentboard.actions",
+    "agentboard.content",
+    "agentboard.exporters",
+    "agentboard.watcher",
 ]
 if sys.platform == "win32":
     hiddenimports += ["webview.platforms.edgechromium", "clr_loader", "pythonnet"]
@@ -98,7 +98,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="ClaudeCodeDashboard",
+    name="Agentboard",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -118,9 +118,9 @@ exe = EXE(
 if sys.platform == "darwin":
     app = BUNDLE(
         exe,
-        name="Claude Code Dashboard.app",
+        name="Agentboard.app",
         icon=str(PROJECT / "assets" / "icon.icns"),
-        bundle_identifier="local.claude-code-dashboard",
+        bundle_identifier="local.agentboard",
         info_plist={
             "CFBundleShortVersionString": "1.0.0",
             "NSHighResolutionCapable": True,

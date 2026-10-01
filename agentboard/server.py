@@ -71,7 +71,7 @@ class BackgroundServer:
             assert self._server is not None and self._socket is not None
             self._server.run(sockets=[self._socket])
 
-        self._thread = threading.Thread(target=run, name="claude-dashboard-http", daemon=True)
+        self._thread = threading.Thread(target=run, name="agentboard-http", daemon=True)
         self._thread.start()
 
         deadline = time.time() + timeout

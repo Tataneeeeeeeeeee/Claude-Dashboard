@@ -3,7 +3,7 @@
  * Everything Claude Code owns is shown read-only. The only writes this
  * view can perform are the two the brief allows: editing a CLAUDE.md
  * (with an automatic timestamped backup) and changing the dashboard's own
- * configuration, which lives in ~/.claude-dashboard and never touches
+ * configuration, which lives in ~/.agentboard and never touches
  * ~/.claude.
  *
  * Exposes `window.configView`.

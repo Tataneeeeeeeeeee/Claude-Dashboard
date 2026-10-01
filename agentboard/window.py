@@ -1,6 +1,6 @@
 """Native window state: size, position and maximised flag across launches.
 
-Kept separate from :mod:`claude_dashboard.app` so it can be unit tested
+Kept separate from :mod:`agentboard.app` so it can be unit tested
 without a display attached.  Geometry is validated before being restored: a
 window remembered on a monitor that is no longer connected must not reopen
 off-screen.

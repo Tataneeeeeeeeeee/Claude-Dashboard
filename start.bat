@@ -49,7 +49,7 @@ if errorlevel 1 goto :failed
 echo. > ".venv\.requirements-stamp"
 
 :run
-"%VPY%" -m claude_dashboard.app %*
+"%VPY%" -m agentboard.app %*
 exit /b %errorlevel%
 
 :failed

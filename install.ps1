@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Install Claude Code Dashboard and create a `claude-dashboard` command.
+    Install Agentboard and create a `agentboard` command.
 
 .DESCRIPTION
     irm <url>/install.ps1 | iex          install from a published source
     .\install.ps1                         install from this checkout
     .\install.ps1 -Uninstall              remove it again
 
-    Installs into %LOCALAPPDATA%\ClaudeCodeDashboard and puts a launcher in
+    Installs into %LOCALAPPDATA%\Agentboard and puts a launcher in
     %LOCALAPPDATA%\Microsoft\WindowsApps, which is on PATH by default on
     Windows 10 and 11. Nothing is written elsewhere.
 #>
@@ -15,11 +15,11 @@
 param(
     # A git URL, a .zip URL, or a local path. Defaults to the published
     # project; override it to install a fork or a branch.
-    [string]$Source = $(if ($env:CLAUDE_DASHBOARD_SRC) { $env:CLAUDE_DASHBOARD_SRC }
+    [string]$Source = $(if ($env:AGENTBOARD_SRC) { $env:AGENTBOARD_SRC }
                         else { 'https://github.com/Tataneeeeeeeeeee/Claude-Dashboard/archive/refs/heads/main.zip' }),
-    [string]$Prefix = $(if ($env:CLAUDE_DASHBOARD_PREFIX) { $env:CLAUDE_DASHBOARD_PREFIX }
-                        else { Join-Path $env:LOCALAPPDATA 'ClaudeCodeDashboard' }),
-    [string]$BinDir = $(if ($env:CLAUDE_DASHBOARD_BIN) { $env:CLAUDE_DASHBOARD_BIN }
+    [string]$Prefix = $(if ($env:AGENTBOARD_PREFIX) { $env:AGENTBOARD_PREFIX }
+                        else { Join-Path $env:LOCALAPPDATA 'Agentboard' }),
+    [string]$BinDir = $(if ($env:AGENTBOARD_BIN) { $env:AGENTBOARD_BIN }
                         else { Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps' }),
     [switch]$Uninstall
 )
@@ -30,21 +30,40 @@ function Write-Step($text) { Write-Host "==> $text" -ForegroundColor Cyan }
 function Write-Warn($text) { Write-Host "warning: $text" -ForegroundColor Yellow }
 function Fail($text) { Write-Host "error: $text" -ForegroundColor Red; exit 1 }
 
-$launcherCmd = Join-Path $BinDir 'claude-dashboard.cmd'
-$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Claude Code Dashboard.lnk'
+$launcherCmd = Join-Path $BinDir 'agentboard.cmd'
+$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Agentboard.lnk'
+
+# Before the rename the app was installed as `claude-dashboard`; remove
+# those pieces so two copies never coexist. The app moves its own data
+# directory on first run.
+function Remove-Legacy {
+    $legacyPrefix = Join-Path $env:LOCALAPPDATA 'ClaudeCodeDashboard'
+    $legacyCmd = Join-Path $BinDir 'claude-dashboard.cmd'
+    $legacyLink = Join-Path ([Environment]::GetFolderPath('Programs')) 'Claude Code Dashboard.lnk'
+    if ((Test-Path $legacyCmd) -and (Select-String -Path $legacyCmd -Pattern 'written by install.ps1' -Quiet)) {
+        Remove-Item $legacyCmd -Force -ErrorAction SilentlyContinue
+        Write-Host "  removed the old launcher $legacyCmd"
+    }
+    Remove-Item $legacyLink -Force -ErrorAction SilentlyContinue
+    if ((Test-Path (Join-Path $legacyPrefix 'app\run_app.py')) -and (Test-Path (Join-Path $legacyPrefix 'venv'))) {
+        Remove-Item $legacyPrefix -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  removed the old installation $legacyPrefix"
+    }
+}
 
 # ------------------------------------------------------------ uninstall
 
 if ($Uninstall) {
-    Write-Step 'Removing Claude Code Dashboard'
+    Write-Step 'Removing Agentboard'
     Remove-Item $launcherCmd -Force -ErrorAction SilentlyContinue
     Remove-Item $shortcut -Force -ErrorAction SilentlyContinue
     Remove-Item $Prefix -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Legacy
     Write-Host ''
     Write-Host 'Removed the application, its virtualenv and the launcher.'
     Write-Host 'Your data is untouched:'
-    Write-Host '  %USERPROFILE%\.claude             Claude Code''s own files'
-    Write-Host '  %USERPROFILE%\.claude-dashboard   this app''s config, cache, trash and backups'
+    Write-Host '  %USERPROFILE%\.agentboard   this app''s config, cache, trash and backups'
+    Write-Host '  %USERPROFILE%\.claude, .codex, .gemini, ...   each AI tool''s own files'
     exit 0
 }
 
@@ -72,7 +91,7 @@ $work = $null
 try {
     $scriptDir = if ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { $null }
 
-    if ($scriptDir -and (Test-Path (Join-Path $scriptDir 'claude_dashboard'))) {
+    if ($scriptDir -and (Test-Path (Join-Path $scriptDir 'agentboard'))) {
         Write-Step 'Installing from this checkout'
         $sourceDir = $scriptDir
         Write-Host "  $sourceDir"
@@ -90,8 +109,8 @@ try {
             Invoke-WebRequest -Uri $Source -OutFile $zip -UseBasicParsing
             Expand-Archive -Path $zip -DestinationPath (Join-Path $work 'unpacked') -Force
             $marker = Get-ChildItem -Path (Join-Path $work 'unpacked') -Recurse -Depth 2 `
-                -Directory -Filter 'claude_dashboard' | Select-Object -First 1
-            if (-not $marker) { Fail "no claude_dashboard directory inside $Source" }
+                -Directory -Filter 'agentboard' | Select-Object -First 1
+            if (-not $marker) { Fail "no agentboard directory inside $Source" }
             $sourceDir = $marker.Parent.FullName
         }
         elseif (Test-Path $Source) {
@@ -108,25 +127,26 @@ no source to install from.
 
 Run this script from inside a checkout, or tell it where to fetch from:
 
-  `$env:CLAUDE_DASHBOARD_SRC = '<repo-or-zip>'; irm <url>/install.ps1 | iex
+  `$env:AGENTBOARD_SRC = '<repo-or-zip>'; irm <url>/install.ps1 | iex
 
-CLAUDE_DASHBOARD_SRC accepts a git URL, a .zip or a local path.
+AGENTBOARD_SRC accepts a git URL, a .zip or a local path.
 "@
     }
 
-    if (-not (Test-Path (Join-Path $sourceDir 'claude_dashboard'))) {
-        Fail "$sourceDir does not look like the project (no claude_dashboard\)"
+    if (-not (Test-Path (Join-Path $sourceDir 'agentboard'))) {
+        Fail "$sourceDir does not look like the project (no agentboard\)"
     }
 
     # ----------------------------------------------------------- install
 
     Write-Step "Installing into $Prefix"
+    Remove-Legacy
     $appDir = Join-Path $Prefix 'app'
     New-Item -ItemType Directory -Force -Path $Prefix, $BinDir | Out-Null
     Remove-Item $appDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $appDir | Out-Null
 
-    foreach ($item in @('claude_dashboard', 'assets', 'requirements.txt', 'run_app.py',
+    foreach ($item in @('agentboard', 'assets', 'requirements.txt', 'run_app.py',
                         'README.md', 'SCHEMA.md', 'config.json')) {
         $path = Join-Path $sourceDir $item
         if (Test-Path $path) { Copy-Item $path -Destination $appDir -Recurse -Force }
@@ -155,7 +175,7 @@ CLAUDE_DASHBOARD_SRC accepts a git URL, a .zip or a local path.
     $exe = if (Test-Path $pyw) { $pyw } else { $vpy }
     @"
 @echo off
-REM Launcher for Claude Code Dashboard, written by install.ps1.
+REM Launcher for Agentboard, written by install.ps1.
 REM
 REM Opens the window and returns straight away, so the terminal stays free
 REM and closing it does not close the app. `start` detaches, and pythonw
@@ -211,7 +231,7 @@ start "" "$exe" "$runner" %ARGS%
     Write-Host ''
     Write-Host 'Installed. Start it with:' -ForegroundColor Green
     Write-Host ''
-    Write-Host '    claude-dashboard'
+    Write-Host '    agentboard'
     Write-Host ''
     if (($env:PATH -split ';') -notcontains $BinDir) {
         Write-Warn "$BinDir is not on your PATH, so the command will not be found yet."
@@ -221,9 +241,9 @@ start "" "$exe" "$runner" %ARGS%
     Write-Host 'The window opens and the terminal is handed straight back to you.'
     Write-Host ''
     Write-Host 'Other commands:'
-    Write-Host '    claude-dashboard --foreground         stay attached and watch the output'
-    Write-Host '    claude-dashboard --check              report the webview backend'
-    Write-Host '    claude-dashboard --headless --browser run without a native window'
+    Write-Host '    agentboard --foreground         stay attached and watch the output'
+    Write-Host '    agentboard --check              report the webview backend'
+    Write-Host '    agentboard --headless --browser run without a native window'
     Write-Host '    install.ps1 -Uninstall                remove it again'
 }
 finally {

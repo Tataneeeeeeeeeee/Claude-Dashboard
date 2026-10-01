@@ -44,7 +44,7 @@ POSITION_IS_KNOWABLE = not (
 
 def _assets_dir() -> Path:
     """Where the icon files live, in a checkout or in a frozen bundle."""
-    bundled = os.environ.get("CLAUDE_DASHBOARD_BUNDLE")
+    bundled = os.environ.get("AGENTBOARD_BUNDLE")
     if bundled:
         candidate = Path(bundled) / "assets"
         if candidate.is_dir():
@@ -57,7 +57,7 @@ ICON_PNG = ASSETS / "icon.png"
 ICON_ICO = ASSETS / "icon.ico"
 
 HELP_TEXT = (
-    "Claude Code Dashboard {version}\n\n"
+    "Agentboard {version}\n\n"
     "A local, offline viewer for the data Claude Code stores in ~/.claude.\n"
     "It makes no network calls and treats ~/.claude as read-only apart from "
     "the trash-move and CLAUDE.md edits you explicitly request.\n\n"
@@ -230,7 +230,7 @@ class Application:
             print(f"server listening on {url}")
 
         self.window = webview.create_window(
-            "Claude Code Dashboard",
+            "Agentboard",
             url,
             js_api=self.api,
             width=self._state.width,
@@ -406,13 +406,13 @@ class Application:
                 return
             try:
                 window.create_confirmation_dialog(
-                    "About Claude Code Dashboard", HELP_TEXT.format(version=__version__)
+                    "About Agentboard", HELP_TEXT.format(version=__version__)
                 )
             except Exception:
                 pass
 
         def open_app_folder() -> None:
-            """Reveal ~/.claude-dashboard in the system file manager."""
+            """Reveal ~/.agentboard in the system file manager."""
             self._reveal(app_home())
 
         return [
@@ -490,7 +490,7 @@ def run_headless(open_browser: bool = False) -> int:
     """
     server = BackgroundServer()
     url = server.start()
-    print(f"Claude Code Dashboard {__version__}")
+    print(f"Agentboard {__version__}")
     print(f"serving on {url}  (no native window; press Ctrl+C to stop)")
     if not _wait_for_server(url):
         print("warning: the server did not answer /api/health", file=sys.stderr)
@@ -508,7 +508,7 @@ def run_headless(open_browser: bool = False) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(
-        prog="claude-dashboard",
+        prog="agentboard",
         description="Offline desktop dashboard for the data Claude Code stores in ~/.claude.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -549,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "error: pywebview is not installed.\n"
             "       install the dependencies with:  pip install -r requirements.txt\n"
-            "       or run without a window:        python -m claude_dashboard.app --headless",
+            "       or run without a window:        python -m agentboard.app --headless",
             file=sys.stderr,
         )
         return 3
@@ -558,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _check_backend() -> int:
     """Print which webview backend is usable and how to install one."""
-    print(f"Claude Code Dashboard {__version__}")
+    print(f"Agentboard {__version__}")
     print(f"python      {sys.version.split()[0]}  ({sys.platform})")
     try:
         from importlib.metadata import version
@@ -595,7 +595,7 @@ def _check_backend() -> int:
         print("  Debian    sudo apt install python3-gi gir1.2-webkit2-4.1")
         print("  Fedora    sudo dnf install python3-gobject webkit2gtk4.1")
         print("  then recreate the venv with:  python -m venv --system-site-packages .venv")
-    print("\nMeanwhile you can run:  python -m claude_dashboard.app --headless --browser")
+    print("\nMeanwhile you can run:  python -m agentboard.app --headless --browser")
     return 1
 
 

@@ -1,7 +1,7 @@
 """Shared fixtures.
 
-Every test runs against a throwaway ``CLAUDE_DASHBOARD_HOME`` so the suite
-never reads or writes the real ``~/.claude-dashboard``.
+Every test runs against a throwaway ``AGENTBOARD_HOME`` so the suite
+never reads or writes the real ``~/.agentboard``.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ def isolated_app_home(tmp_path, monkeypatch):
     """Point the app's config and cache at a temporary directory."""
     home = tmp_path / "app-home"
     home.mkdir()
-    monkeypatch.setenv("CLAUDE_DASHBOARD_HOME", str(home))
-    from claude_dashboard import config
+    monkeypatch.setenv("AGENTBOARD_HOME", str(home))
+    from agentboard import config
 
     monkeypatch.setattr(config, "_CACHED", None, raising=False)
     yield home
@@ -47,5 +47,5 @@ def fake_claude_home(tmp_path, monkeypatch) -> Path:
     shutil.copy(FIXTURES / "basic.jsonl", project / "11111111-2222-3333-4444-555555555555.jsonl")
     shutil.copy(FIXTURES / "messy.jsonl", project / "99999999-8888-7777-6666-555555555555.jsonl")
     (home / "settings.json").write_text('{"model": "opus[1m]", "theme": "dark"}', encoding="utf-8")
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(home))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(home))
     return home

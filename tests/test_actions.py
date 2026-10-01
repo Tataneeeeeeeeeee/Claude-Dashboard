@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from claude_dashboard import actions
-from claude_dashboard.actions import (
+from agentboard import actions
+from agentboard.actions import (
     SafetyError,
     build_terminal_commands,
     delete_batch_permanently,
@@ -19,7 +19,7 @@ from claude_dashboard.actions import (
     restore_batch,
     resume_command_string,
 )
-from claude_dashboard.paths import trash_dir
+from agentboard.paths import trash_dir
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def tree(tmp_path, monkeypatch):
         path = project / f"{index}aaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl"
         path.write_text('{"type":"mode"}\n' * (index + 1), encoding="utf-8")
         files.append(path)
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(home))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(home))
     return {"home": home, "project": project, "files": files}
 
 

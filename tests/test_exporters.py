@@ -7,8 +7,8 @@ import re
 
 import pytest
 
-from claude_dashboard import exporters
-from claude_dashboard.parser import parse_conversation
+from agentboard import exporters
+from agentboard.parser import parse_conversation
 
 
 @pytest.fixture
@@ -121,7 +121,7 @@ def test_html_marks_errors_and_sidechains(tmp_path):
 
 def test_json_round_trips(parsed):
     payload = json.loads(exporters.to_json(parsed))
-    assert payload["exported_by"] == "Claude Code Dashboard"
+    assert payload["exported_by"] == "Agentboard"
     assert payload["info"]["cwd"] == "/home/tester/demo"
     assert len(payload["messages"]) == len(parsed["messages"])
     assert "local estimates" in payload["note"]

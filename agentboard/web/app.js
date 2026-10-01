@@ -1,4 +1,4 @@
-/* Claude Code Dashboard - UI shell.
+/* Agentboard - UI shell.
  *
  * Plain ES modules-free JavaScript: no build step, no bundler, no CDN.  The
  * global `window.dashboard` object is also the surface the native menu bar
@@ -1038,7 +1038,7 @@ const dashboard = {
       `Move ${list.length} transcript${list.length === 1 ? '' : 's'} to the dashboard trash?\n\n`
       + preview + more
       + `\n\n${bytes(totalBytes)} will be moved out of ~/.claude/projects into\n`
-      + `~/.claude-dashboard/trash, where you can restore it.\n`
+      + `~/.agentboard/trash, where you can restore it.\n`
       + 'Nothing is erased.';
 
     const confirmed = await this.confirm('Move to trash', message);

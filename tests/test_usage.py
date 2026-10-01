@@ -6,9 +6,9 @@ from datetime import date
 
 import pytest
 
-from claude_dashboard.config import DEFAULT_PRICING, cost_of, normalise_model, price_for_model
-from claude_dashboard.parser import scan_session
-from claude_dashboard.usage import (
+from agentboard.config import DEFAULT_PRICING, cost_of, normalise_model, price_for_model
+from agentboard.parser import scan_session
+from agentboard.usage import (
     aggregate,
     by_model,
     by_project,
@@ -147,7 +147,7 @@ def test_by_project_and_by_model_rollups(metas):
 
 
 def test_tool_stats_counts_and_groups_mcp_servers():
-    from claude_dashboard.parser import SessionMeta
+    from agentboard.parser import SessionMeta
 
     meta = SessionMeta(
         session_id="s", path="p", project_dir="d", project_path="/proj",
@@ -171,7 +171,7 @@ def test_heatmap_is_a_seven_by_twentyfour_grid(metas):
 
 
 def test_heatmap_ignores_malformed_slots():
-    from claude_dashboard.parser import SessionMeta
+    from agentboard.parser import SessionMeta
 
     meta = SessionMeta(
         session_id="s", path="p", project_dir="d",

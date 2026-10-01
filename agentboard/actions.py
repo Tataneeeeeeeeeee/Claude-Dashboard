@@ -4,7 +4,7 @@ Everything the dashboard does is read-only except what is in this module,
 and each of those operations is deliberately narrow:
 
 * :func:`move_to_trash` relocates transcripts into
-  ``~/.claude-dashboard/trash``.  Nothing is ever unlinked from
+  ``~/.agentboard/trash``.  Nothing is ever unlinked from
   ``~/.claude``; deletion is a move, and :func:`restore_batch` puts it back.
 * :func:`launch_terminal`, :func:`open_folder` and :func:`open_in_editor`
   start an external process.
@@ -309,6 +309,21 @@ def list_trash() -> List[TrashBatch]:
     return batches
 
 
+def _stored_file(batch: Path, item: Dict[str, Any]) -> Path:
+    """Where a trashed file is now.
+
+    Manifests record an absolute path, which goes stale when the data
+    directory moves (as it did when ``~/.claude-dashboard`` became
+    ``~/.agentboard``).  The layout inside a batch never changes, so the file
+    is looked for there when the recorded path no longer exists.
+    """
+    stored = Path(item.get("stored_path", ""))
+    if stored.is_file():
+        return stored
+    relocated = batch / "files" / str(item.get("project_dir", "")) / stored.name
+    return relocated if stored.name and relocated.is_file() else stored
+
+
 def restore_batch(batch_id: str, session_ids: Iterable[str] | None = None) -> Dict[str, Any]:
     """Move files from a trash batch back to where they came from.
 
@@ -337,7 +352,7 @@ def restore_batch(batch_id: str, session_ids: Iterable[str] | None = None) -> Di
             remaining.append(item)
             continue
 
-        stored = Path(item.get("stored_path", ""))
+        stored = _stored_file(target, item)
         original = Path(item.get("original_path", ""))
         if not stored.is_file():
             skipped.append({"session_id": session_id, "reason": "file missing from the trash"})
@@ -380,7 +395,7 @@ def delete_batch_permanently(batch_id: str) -> Dict[str, Any]:
     """Remove one trash batch for good.
 
     This is the only code path that actually unlinks a transcript, and it
-    only ever operates inside ``~/.claude-dashboard/trash``.
+    only ever operates inside ``~/.agentboard/trash``.
     """
     target = _batch_dir(batch_id)
     if not target.is_dir():

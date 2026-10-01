@@ -26,7 +26,7 @@ fi
 echo
 echo "== lint =="
 if "$PY" -c "import pyflakes" 2>/dev/null; then
-  "$PY" -m pyflakes claude_dashboard/*.py tools/*.py tests/*.py check_backend.py \
+  "$PY" -m pyflakes agentboard/*.py tools/*.py tests/*.py check_backend.py \
     && echo "pyflakes: clean" || status=1
 else
   echo "pyflakes not installed; skipping"
