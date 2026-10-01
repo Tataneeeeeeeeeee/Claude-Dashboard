@@ -768,7 +768,10 @@ def create_app() -> FastAPI:
 
     @app.post("/api/providers/rescan")
     def providers_rescan() -> Dict[str, Any]:
-        """Detect installed tools again and re-index."""
+        """Detect installed tools again (as the installer does) and re-index."""
+        from .detect import detect_and_configure
+
+        detect_and_configure()
         return _providers_changed()
 
     @app.patch("/api/providers/{provider_id}")

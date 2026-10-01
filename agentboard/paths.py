@@ -67,8 +67,14 @@ def _env_path(var: str, default: Path) -> Path:
 
 
 def claude_home() -> Path:
-    """Root of the Claude Code data directory (``~/.claude``)."""
-    return _env_path("AGENTBOARD_CLAUDE_HOME", Path.home() / ".claude")
+    """Root of the Claude Code data directory (``~/.claude``).
+
+    ``AGENTBOARD_CLAUDE_HOME`` wins, then Claude Code's own
+    ``CLAUDE_CONFIG_DIR``, then the default.
+    """
+    configured = os.environ.get("CLAUDE_CONFIG_DIR")
+    default = Path(configured).expanduser() if configured else Path.home() / ".claude"
+    return _env_path("AGENTBOARD_CLAUDE_HOME", default)
 
 
 def claude_projects_dir() -> Path:

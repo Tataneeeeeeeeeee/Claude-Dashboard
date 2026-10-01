@@ -146,7 +146,7 @@ AGENTBOARD_SRC accepts a git URL, a .zip or a local path.
     Remove-Item $appDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $appDir | Out-Null
 
-    foreach ($item in @('agentboard', 'assets', 'requirements.txt', 'run_app.py',
+    foreach ($item in @('agentboard', 'assets', 'examples', 'requirements.txt', 'run_app.py',
                         'README.md', 'SCHEMA.md', 'config.json')) {
         $path = Join-Path $sourceDir $item
         if (Test-Path $path) { Copy-Item $path -Destination $appDir -Recurse -Force }
@@ -196,7 +196,7 @@ if not "%ARGS%"=="%ARGS:--foreground=%" (
 )
 
 if not "%ARGS%"=="" (
-  echo(%ARGS% | findstr /i /c:"--check" /c:"--version" /c:"--headless" /c:"--browser" /c:"--debug" /c:"--help" >nul && set "FOREGROUND=1"
+  echo(%ARGS% | findstr /i /c:"--check" /c:"--version" /c:"--headless" /c:"--browser" /c:"--debug" /c:"--detect-providers" /c:"--help" >nul && set "FOREGROUND=1"
 )
 
 if defined FOREGROUND (
@@ -215,7 +215,7 @@ start "" "$exe" "$runner" %ARGS%
         $link.Arguments = "`"$runner`""
         $link.WorkingDirectory = $appDir
         $link.IconLocation = Join-Path $appDir 'assets\icon.ico'
-        $link.Description = 'Browse and analyse the data Claude Code stores in ~/.claude'
+        $link.Description = 'Browse and compare the local history of your AI coding assistants'
         $link.Save()
         Write-Host "  $shortcut"
     } catch {
@@ -227,6 +227,15 @@ start "" "$exe" "$runner" %ARGS%
     Write-Step 'Verifying'
     $reported = & $vpy $runner --version
     Write-Host "  $reported"
+
+    # ---------------------------------------------------------- providers
+
+    # Find every supported AI tool and point its adapter at its history.
+    Write-Step 'Detecting AI tools'
+    & $vpy $runner --detect-providers
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "provider detection failed; run 'agentboard --detect-providers' later, or use Settings > Providers."
+    }
 
     Write-Host ''
     Write-Host 'Installed. Start it with:' -ForegroundColor Green
@@ -244,6 +253,7 @@ start "" "$exe" "$runner" %ARGS%
     Write-Host '    agentboard --foreground         stay attached and watch the output'
     Write-Host '    agentboard --check              report the webview backend'
     Write-Host '    agentboard --headless --browser run without a native window'
+    Write-Host '    agentboard --detect-providers   detect AI tools again'
     Write-Host '    install.ps1 -Uninstall                remove it again'
 }
 finally {

@@ -316,3 +316,21 @@ def test_an_unrecognisable_source_is_reported(tmp_path):
     result = _run_installer(tmp_path, "wat://nonsense")
     assert result.returncode != 0
     assert "cannot tell how to fetch" in result.stderr
+
+
+def test_both_installers_detect_ai_tools_after_installing():
+    """Each supported tool's adapter is configured at install time."""
+    shell = read("install.sh")
+    assert '--detect-providers' in shell[shell.index('step "Detecting AI tools"'):]
+    assert "examples" in shell, "the example provider specs must be copied"
+    powershell = read("install.ps1")
+    assert "& $vpy $runner --detect-providers" in powershell
+    assert "'examples'" in powershell
+
+
+def test_detection_keeps_the_foreground_in_both_launchers():
+    """It prints a report, so the launcher must not detach it."""
+    for script in ("install.sh", "install.ps1"):
+        text = read(script)
+        block = text[text.index("Launcher for Agentboard"):]
+        assert "--detect-providers" in block, script

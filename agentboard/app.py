@@ -531,6 +531,11 @@ def main(argv: list[str] | None = None) -> int:
         help="with --headless, open the default browser at the served URL",
     )
     parser.add_argument(
+        "--detect-providers",
+        action="store_true",
+        help="detect installed AI tools, configure their adapters, print a report and exit",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="report whether a native window backend is available, then exit",
@@ -539,6 +544,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.check:
         return _check_backend()
+    if args.detect_providers:
+        from .detect import detect_and_configure, format_report
+
+        report = detect_and_configure()
+        print(format_report(report))
+        return 0
     if args.headless:
         return run_headless(open_browser=args.browser)
 

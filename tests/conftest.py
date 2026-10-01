@@ -38,6 +38,11 @@ def isolated_app_home(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(tmp_path / "no-claude"))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex"))
     monkeypatch.setenv("GEMINI_CLI_HOME", str(tmp_path / "no-gemini"))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    from agentboard import detect
+
+    # Example specs point at real home folders; never pick those up here.
+    monkeypatch.setattr(detect, "EXAMPLES_DIR", tmp_path / "no-examples", raising=False)
     from agentboard import config
     from agentboard.providers import registry
 

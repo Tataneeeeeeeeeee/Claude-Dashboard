@@ -209,7 +209,7 @@ rm -rf "$PREFIX/app"
 mkdir -p "$PREFIX/app"
 
 # Copy only what the application needs at runtime.
-for item in agentboard assets requirements.txt run_app.py README.md SCHEMA.md config.json; do
+for item in agentboard assets examples requirements.txt run_app.py README.md SCHEMA.md config.json; do
   [ -e "$SOURCE/$item" ] && cp -R "$SOURCE/$item" "$PREFIX/app/"
 done
 find "$PREFIX/app" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -254,7 +254,7 @@ fi
 
 for arg in "\$@"; do
   case "\$arg" in
-    --check|--version|--headless|--browser|--debug|-h|--help)
+    --check|--version|--headless|--browser|--debug|--detect-providers|-h|--help)
       exec "\$PYTHON" "\$APP" "\$@"
       ;;
   esac
@@ -289,7 +289,7 @@ if [ "$OS" = "Linux" ]; then
 [Desktop Entry]
 Type=Application
 Name=Agentboard
-Comment=Browse and analyse the data Claude Code stores in ~/.claude
+Comment=Browse and compare the local history of your AI coding assistants
 Exec=$LAUNCHER
 Icon=$PREFIX/app/assets/icon.png
 Terminal=false
@@ -309,6 +309,15 @@ if "$LAUNCHER" --version >/dev/null 2>&1; then
 else
   die "the launcher did not run. Try: $VPY $PREFIX/app/run_app.py --check"
 fi
+
+# ------------------------------------------------------------ providers
+
+# Find every supported AI tool and point its adapter at its history. A
+# data folder set only through an environment variable (CODEX_HOME, ...)
+# is remembered, since the desktop launcher will not inherit it.
+step "Detecting AI tools"
+"$VPY" "$PREFIX/app/run_app.py" --detect-providers \
+  || warn "provider detection failed; run 'agentboard --detect-providers' later, or use Settings > Providers."
 
 say
 say "Installed. Start it with:"
@@ -335,4 +344,5 @@ say "Other commands:"
 say "    agentboard --foreground         stay attached and watch the output"
 say "    agentboard --check              report the webview backend"
 say "    agentboard --headless --browser run without a native window"
+say "    agentboard --detect-providers   detect AI tools again"
 say "    $0 --uninstall   remove it again"
