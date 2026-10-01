@@ -69,7 +69,9 @@ def test_version_flag(capsys):
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])
     assert exit_info.value.code == 0
-    assert "1.0.0" in capsys.readouterr().out
+    from agentboard import __version__
+
+    assert __version__ in capsys.readouterr().out
 
 
 def test_position_is_not_persisted_on_wayland(monkeypatch):

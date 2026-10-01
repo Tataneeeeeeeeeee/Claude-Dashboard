@@ -13,7 +13,7 @@ The package is split into narrow modules:
 ``app``       pywebview bootstrap (native window, menu, tray)
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 #: The product name shown in titles, menus and dialogs.
 PRODUCT_NAME = "Agentboard"

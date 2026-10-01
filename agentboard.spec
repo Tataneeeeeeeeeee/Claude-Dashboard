@@ -129,7 +129,7 @@ if sys.platform == "darwin":
         icon=str(PROJECT / "assets" / "icon.icns"),
         bundle_identifier="local.agentboard",
         info_plist={
-            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleShortVersionString": "2.0.0",
             "NSHighResolutionCapable": True,
             # The app only ever talks to 127.0.0.1.
             "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
