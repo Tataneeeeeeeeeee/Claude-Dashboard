@@ -38,8 +38,9 @@ def register(cls: Type[ProviderAdapter]) -> Type[ProviderAdapter]:
 def _load_builtins() -> None:
     """Import the built-in adapters so they register themselves."""
     from .claude import ClaudeAdapter
+    from .codex import CodexAdapter
 
-    for cls in (ClaudeAdapter,):
+    for cls in (ClaudeAdapter, CodexAdapter):
         BUILTIN.setdefault(cls.id, cls)
 
 

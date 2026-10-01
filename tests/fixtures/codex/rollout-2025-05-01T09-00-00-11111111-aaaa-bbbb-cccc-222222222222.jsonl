@@ -1,0 +1,6 @@
+{"id": "11111111-aaaa-bbbb-cccc-222222222222", "timestamp": "2025-05-01T09:00:00.000Z", "instructions": null}
+{"record_type": "state"}
+{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "list the files"}]}
+{"type": "function_call", "name": "shell", "arguments": "{\"command\":[\"ls\"]}", "call_id": "c1"}
+{"type": "function_call_output", "call_id": "c1", "output": "{\"output\":\"a.py\\n\",\"metadata\":{\"exit_code\":0}}"}
+{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "There is a.py."}]}
