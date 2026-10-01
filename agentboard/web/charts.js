@@ -448,7 +448,9 @@
 
   /**
    * Horizontal bars, for long category names.
-   * A single hue by default: magnitude, not identity.
+   * A single hue by default: magnitude, not identity. A row may carry its
+   * own `color` when the rows *are* identities (one bar per provider); the
+   * label always names the row, so colour is never the only key.
    */
   function barChart(spec) {
     const { rows = [], labelKey = 'label', valueKey = 'value',
@@ -467,14 +469,15 @@
     for (const row of data) {
       const value = Number(row[valueKey]) || 0;
       const percent = Math.max(0.6, (value / max) * 100);
+      const fill = row.color || color;
       const track = html('div.hbar-track', {}, [
-        html('div.hbar-fill', { style: `width:${percent}%;background:${color}` }),
+        html('div.hbar-fill', { style: `width:${percent}%;background:${fill}` }),
       ]);
       const node = html('div.hbar-row', {
         onmousemove: (event) => showTooltip(event, {
           title: String(row[labelKey]),
           rows: [
-            { label: spec.label || 'Value', value: format(value), color },
+            { label: spec.label || 'Value', value: format(value), color: fill },
             ...(row.extra || []),
           ],
         }),

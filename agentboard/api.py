@@ -1083,9 +1083,11 @@ def create_app() -> FastAPI:
                     # dashboard paints on first frame instead of after a
                     # round trip.
                     config = load_config()
-                    payload["usage"] = aggregate(
-                        get_index().filter(), "day", pricing_resolver(config), _dir_size(claude_home())
-                    )
+                    resolve = pricing_resolver(config)
+                    metas = get_index().filter()
+                    payload["usage"] = aggregate(metas, "day", resolve)
+                    if len({m.provider for m in metas}) >= 2:
+                        payload["compare"] = compare_providers(metas, "day", resolve)
                 if open:
                     meta = get_index().get(open)
                     if meta is not None and Path(meta.path).is_file():
