@@ -368,3 +368,9 @@ def test_project_paths_can_be_recovered_by_an_adapter(fake_claude_home, notes_di
     recovered = index.filter(provider="pathless")[0]
     assert recovered.project_path == "/home/tester/demo"
     assert project_key(recovered) == "/home/tester/demo"
+
+
+def test_the_claude_scan_records_the_files_a_session_touched(fixtures):
+    meta = scan_session(fixtures / "basic.jsonl")
+    assert "/srv/router.py" in meta.files_touched
+    assert len(meta.files_touched) == len(set(meta.files_touched))

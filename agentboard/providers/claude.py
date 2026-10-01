@@ -314,6 +314,7 @@ def scan_session(path: Path | str) -> SessionMeta:
                     meta.tool_calls += 1
                     if day:
                         meta.daily[day]["tool_calls"] += 1
+                    note_file_touched(meta, block.get("input"))
 
     meta.tokens = tokens
     meta.versions = versions
@@ -578,6 +579,23 @@ def parse_conversation(
     }
 
 
+
+
+#: Tool input keys that name a file the tool read or changed.
+FILE_INPUT_KEYS = ("file_path", "notebook_path")
+
+#: At most this many distinct paths are kept per session.
+MAX_FILES_TOUCHED = 500
+
+
+def note_file_touched(meta: SessionMeta, tool_input: Any) -> None:
+    """Record the file a ``Read``/``Edit``/``Write``-style call worked on."""
+    if not isinstance(tool_input, dict) or len(meta.files_touched) >= MAX_FILES_TOUCHED:
+        return
+    for key in FILE_INPUT_KEYS:
+        value = tool_input.get(key)
+        if isinstance(value, str) and value and value not in meta.files_touched:
+            meta.files_touched.append(value)
 
 
 def searchable_text(entry: Dict[str, Any]) -> str:
