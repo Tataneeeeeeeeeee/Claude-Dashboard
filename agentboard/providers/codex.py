@@ -198,6 +198,7 @@ class CodexAdapter(ProviderAdapter):
     id = "codex"
     name = "Codex CLI"
     monogram = "Cx"
+    assistant_label = "Codex"
     color = "#10a37f"
     description = "OpenAI's terminal coding agent. Reads ~/.codex/sessions."
     binary_names = ("codex",)

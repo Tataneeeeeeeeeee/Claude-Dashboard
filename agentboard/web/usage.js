@@ -147,7 +147,7 @@
       if (!data.totals.sessions) {
         page.append(el('div.placeholder', {}, [
           el('h2', { text: 'Nothing to chart yet' }),
-          el('p', { text: 'Once Claude Code has recorded a session, its usage appears here.' }),
+          el('p', { text: 'Once an AI assistant has recorded a session, its usage appears here.' }),
         ]));
         this.host.replaceChildren(page);
         return;
@@ -404,7 +404,7 @@
         `${data.models.length} model${data.models.length === 1 ? '' : 's'} seen`,
         window.charts.barChart({
           rows: data.models.filter((entry) => entry.total_tokens > 0).map((entry) => ({
-            label: entry.model.replace(/^claude-/, ''),
+            label: entry.model,
             value: entry.total_tokens,
             extra: [
               { label: 'Estimated cost', value: window.charts.money(entry.cost) },

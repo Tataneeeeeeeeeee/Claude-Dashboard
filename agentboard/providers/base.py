@@ -129,6 +129,8 @@ class ProviderAdapter(ABC):
     id: str = ""
     #: Display name.
     name: str = ""
+    #: How the assistant is named beside its messages ("Claude", "Codex").
+    assistant_label: str = ""
     #: One or two characters drawn in the provider badge.
     monogram: str = "?"
     #: Brand accent, used only for this provider's badges and chart series.
@@ -359,6 +361,7 @@ class ProviderAdapter(ABC):
             "id": self.id,
             "name": self.name,
             "monogram": self.monogram,
+            "assistant_label": self.assistant_label or self.name,
             "color": self.color,
             "description": self.description,
             "custom": self.custom,

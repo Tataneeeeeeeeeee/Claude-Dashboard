@@ -165,6 +165,7 @@ class GenericAdapter(ProviderAdapter):
         self.spec = spec
         self.id = spec["id"]
         self.name = spec.get("name") or spec["id"]
+        self.assistant_label = spec.get("assistant_label") or self.name
         self.monogram = (spec.get("monogram") or self.name[:2]).strip()[:2] or "?"
         self.color = spec["color"]
         self.description = spec.get("description") or f"Custom provider reading {spec['home']}/{spec['glob']}"

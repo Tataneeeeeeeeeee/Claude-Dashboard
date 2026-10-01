@@ -2,7 +2,7 @@
  *
  * Written here rather than pulled from a CDN because the application must
  * work with no network at all.  It covers the subset that actually appears
- * in Claude Code transcripts: fenced and indented code, ATX headings,
+ * in AI assistant transcripts: fenced and indented code, ATX headings,
  * lists, block quotes, tables, horizontal rules, and inline emphasis,
  * code, links and strikethrough.
  *

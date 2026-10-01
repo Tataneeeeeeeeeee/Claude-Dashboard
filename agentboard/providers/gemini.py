@@ -124,6 +124,7 @@ class GeminiAdapter(ProviderAdapter):
     id = "gemini"
     name = "Gemini CLI"
     monogram = "G"
+    assistant_label = "Gemini"
     color = "#4285f4"
     description = "Google's terminal coding agent. Reads ~/.gemini/tmp/*/chats."
     binary_names = ("gemini",)

@@ -14,8 +14,10 @@
   --text:          #1e1f22;
   --text-dim:      #63656c;
   --text-faint:    #8d8f97;
-  --accent:        #c2643c;
-  --accent-soft:   rgba(194, 100, 60, 0.12);
+  /* A neutral indigo: no provider's brand colour, so every provider's
+     own accent reads as its identity against it. */
+  --accent:        #4f56c9;
+  --accent-soft:   rgba(79, 86, 201, 0.11);
   --accent-text:   #ffffff;
   --user:          #3b6ea5;
   --user-soft:     rgba(59, 110, 165, 0.10);
@@ -43,8 +45,8 @@
   --text:          #e8e6e3;
   --text-dim:      #9aa0ad;
   --text-faint:    #6b7280;
-  --accent:        #d97757;
-  --accent-soft:   rgba(217, 119, 87, 0.14);
+  --accent:        #9ea3f5;
+  --accent-soft:   rgba(158, 163, 245, 0.14);
   --accent-text:   #16181d;
   --user:          #6ea8dc;
   --user-soft:     rgba(110, 168, 220, 0.12);
@@ -1286,3 +1288,35 @@ button.danger:hover {
 .tag button { padding: 0; color: inherit; font-size: 9px; background: none; }
 
 .note-area { width: 100%; min-height: 110px; font-size: 12.5px; resize: vertical; }
+
+/* =====================================================================
+   Providers
+   =====================================================================
+   A provider's accent appears only on its own badge and chart series;
+   the shell stays neutral. Badges always carry the name as text for
+   assistive technology and as a tooltip, never colour alone. */
+
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 4px;
+  background: var(--p-color, #8a8f98);
+  color: #fff;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  vertical-align: middle;
+  /* Dark text would fail on the deeper accents; a hairline shadow keeps
+     white text legible on the lighter ones too. */
+  text-shadow: 0 0 1px rgba(0, 0, 0, .35);
+}
+.provider-badge.sm { width: 16px; height: 16px; font-size: 8.5px; }
+.provider-badge.md { width: 20px; height: 20px; font-size: 10px; margin-right: 7px; }
+.provider-badge.lg { width: 30px; height: 30px; font-size: 13px; border-radius: 7px; }
+
+.onboarding { max-width: 520px; margin: 0 auto; text-align: left; }
+.onboarding-list { list-style: none; padding: 0; margin: 16px 0 20px; display: grid; gap: 10px; }
+.onboarding-list li { display: flex; align-items: flex-start; gap: 4px; }
+.onboarding-list code { font-size: 11px; }

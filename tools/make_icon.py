@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 
 BACKGROUND = (28, 30, 38, 255)
-ACCENT = (217, 119, 87, 255)       # the warm Claude terracotta
+ACCENT = (124, 131, 238, 255)      # neutral indigo, no single vendor's colour
 INK = (240, 238, 234, 255)
 DIM = (120, 126, 140, 255)
 

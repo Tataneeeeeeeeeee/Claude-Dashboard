@@ -27,7 +27,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import __version__
+from . import PRODUCT_NAME, __version__
 from .config import load_config
 from .paths import app_home, claude_home
 from .server import BackgroundServer
@@ -58,16 +58,18 @@ ICON_ICO = ASSETS / "icon.ico"
 
 HELP_TEXT = (
     "Agentboard {version}\n\n"
-    "A local, offline viewer for the data Claude Code stores in ~/.claude.\n"
-    "It makes no network calls and treats ~/.claude as read-only apart from "
-    "the trash-move and CLAUDE.md edits you explicitly request.\n\n"
+    "A local, offline dashboard for AI coding assistants: Claude Code, Codex\n"
+    "CLI, Gemini CLI and any tool you describe in a provider spec.\n"
+    "It makes no network calls and treats every tool's data as read-only apart "
+    "from the trash-move and instruction-file edits you explicitly request.\n\n"
     "Keyboard\n"
     "  /          focus search\n"
     "  j / k      next / previous session\n"
     "  Enter      open the selected session\n"
     "  r          resume in a terminal\n"
     "  Delete     move to trash\n"
-    "  1 2 3      sessions / usage / config\n"
+    "  1 2 3      sessions / usage / settings\n"
+    "  p          next provider\n"
     "  ?          show shortcuts\n"
 )
 
@@ -230,7 +232,7 @@ class Application:
             print(f"server listening on {url}")
 
         self.window = webview.create_window(
-            "Agentboard",
+            PRODUCT_NAME,
             url,
             js_api=self.api,
             width=self._state.width,
@@ -406,7 +408,7 @@ class Application:
                 return
             try:
                 window.create_confirmation_dialog(
-                    "About Agentboard", HELP_TEXT.format(version=__version__)
+                    f"About {PRODUCT_NAME}", HELP_TEXT.format(version=__version__)
                 )
             except Exception:
                 pass
@@ -436,7 +438,7 @@ class Application:
                 [
                     MenuAction("Sessions", view("sessions")),
                     MenuAction("Usage dashboard", view("usage")),
-                    MenuAction("Configuration", view("config")),
+                    MenuAction("Settings", view("config")),
                     MenuSeparator(),
                     MenuAction("Focus search", js("window.dashboard && window.dashboard.focusSearch()")),
                     MenuAction("Toggle theme", js("window.dashboard && window.dashboard.cycleTheme()")),
@@ -509,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(
         prog="agentboard",
-        description="Offline desktop dashboard for the data Claude Code stores in ~/.claude.",
+        description="Offline desktop dashboard for AI coding assistants' local history.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--debug", action="store_true", help="open the webview inspector")

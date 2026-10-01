@@ -165,6 +165,11 @@
       this.messages = parsed.messages || [];
       this.info = parsed.info || {};
       this.meta = parsed.meta || null;
+      // Who the assistant is depends on the provider that wrote the session.
+      const provider = this.meta && this.options.provider
+        ? this.options.provider(this.meta.provider) : null;
+      this.assistantLabel = (provider && provider.assistant_label) || 'Assistant';
+      this.providerName = (provider && provider.name) || 'the tool';
       this.errors = parsed.errors || [];
       this.expanded = new Set();
       this.rendered.clear();
@@ -270,7 +275,11 @@
 
       return el('div.v-header', {}, [
         el('div.v-title-row', {}, [
-          el('h2.v-title', { text: info.title || meta.title || 'Conversation' }),
+          el('h2.v-title', {}, [
+            this.options.providerBadge && meta.provider
+              ? this.options.providerBadge(meta.provider) : null,
+            info.title || meta.title || 'Conversation',
+          ]),
           el('div.v-actions', {}, [
             toggle('thinking', 'Thinking', 'Show or hide thinking blocks'),
             toggle('tools', 'Tools', 'Show or hide tool calls and results'),
@@ -487,7 +496,7 @@
     /** The left-hand role and timestamp column. */
     gutter(message) {
       const label = {
-        user: 'You', assistant: 'Claude', tool_result: 'Result',
+        user: 'You', assistant: this.assistantLabel || 'Assistant', tool_result: 'Result',
         system: 'System', attachment: 'Context',
       }[message.kind] || message.kind;
 
@@ -533,7 +542,7 @@
       }
     }
 
-    /** Prose, rendered as Markdown for Claude and plain text for the user. */
+    /** Prose, rendered as Markdown for the assistant and plain text for the user. */
     textBlock(text, message) {
       const value = String(text || '');
       if (!value.trim()) return null;
@@ -557,7 +566,7 @@
       if (!text.trim()) {
         return el('div.v-thinking-empty', {
           text: 'Thinking \u00b7 not recorded in the transcript',
-          title: 'Claude Code stored the signature for this block but not its text',
+          title: 'The tool stored a marker for this reasoning block but not its text',
         });
       }
       const words = text.trim().split(/\s+/).length;
@@ -631,7 +640,7 @@
         key: `a${message.index}`,
         className: 'v-attachment',
         label: message.subtype || 'context',
-        hint: 'injected by Claude Code',
+        hint: `injected by ${this.providerName || 'the tool'}`,
         build: () => {
           const wrapper = el('div');
           const rendered = message.extra && message.extra.rendered;

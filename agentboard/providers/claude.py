@@ -638,7 +638,10 @@ class ClaudeAdapter(ProviderAdapter):
     id = "claude"
     name = "Claude Code"
     monogram = "C"
-    color = "#d97757"
+    assistant_label = "Claude"
+    # Near the brand orange, nudged to pass the chart-palette checks in both
+    # themes next to the other built-in providers.
+    color = "#d6714f"
     description = "Anthropic's terminal coding agent. Reads ~/.claude/projects."
     binary_names = ("claude",)
     file_suffixes = (".jsonl",)

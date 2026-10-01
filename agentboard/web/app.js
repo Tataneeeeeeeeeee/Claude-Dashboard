@@ -114,6 +114,24 @@ function escapeHtml(text) {
   ));
 }
 
+/**
+ * A provider's badge: its monogram on its own accent colour.
+ * The name is always given as text to assistive technology and as a
+ * tooltip, so identity never rests on colour alone.
+ * @param {{id:string,name:string,monogram:string,color:string}|null} provider
+ * @param {'sm'|'md'} [size]
+ */
+function providerBadge(provider, size = 'sm') {
+  const info = provider || { id: 'unknown', name: 'Unknown provider', monogram: '?', color: '#8a8f98' };
+  return el(`span.provider-badge.${size}`, {
+    style: `--p-color:${info.color}`,
+    title: info.name,
+    role: 'img',
+    'aria-label': info.name,
+    text: info.monogram || info.name.slice(0, 1),
+  });
+}
+
 /* ------------------------------------------------------------------ api */
 
 /** Thin wrapper over the local HTTP API with consistent error reporting. */
@@ -234,7 +252,7 @@ const dashboard = {
         if (!this.themePinned) this.applyTheme(preload.bootstrap.config.theme || 'system');
         this.fillFilters(preload.bootstrap);
         this.renderCorpus(preload.bootstrap.stats);
-        if (preload.bootstrap.paths.projects_dir_exists && preload.sessions) {
+        if (preload.bootstrap.stats.session_count && preload.sessions) {
           this.state.sessions = preload.sessions.sessions;
           this.renderSessions(preload.sessions);
           this.setStatus('ok', 'Ready');
@@ -268,9 +286,10 @@ const dashboard = {
       this.fillFilters(boot);
       this.renderCorpus(boot.stats);
 
-      if (!boot.paths.projects_dir_exists) {
+      if (!boot.stats.session_count) {
         this.renderEmptyState(boot);
-        this.setStatus('error', 'No transcripts found');
+        this.setStatus('ok', 'No history yet');
+        this.watchForChanges();
         return;
       }
       await this.loadSessions();
@@ -494,6 +513,14 @@ const dashboard = {
     }
   },
 
+  /* ----------------------------------------------------------- providers */
+
+  /** The descriptor of one provider, from the bootstrap payload. */
+  provider(id) {
+    const list = (this.state.bootstrap && this.state.bootstrap.providers) || [];
+    return list.find((p) => p.id === id) || null;
+  },
+
   /* --------------------------------------------------------------- view */
 
   /** Switch the main view. Also called from the native View menu. */
@@ -600,7 +627,7 @@ const dashboard = {
     const models = $('#filter-model');
     models.replaceChildren(el('option', { value: '', text: 'Model' }));
     for (const model of boot.distinct.models) {
-      models.append(el('option', { value: model, text: model.replace(/^claude-/, '') }));
+      models.append(el('option', { value: model, text: model }));
     }
 
     const tools = $('#filter-tool');
@@ -781,6 +808,8 @@ const dashboard = {
       onCopyMarkdown: () => this.copyConversation(),
       onExport: (event) => this.showExportMenu(event),
       actions: (sessionId) => this.sessionActions(sessionId),
+      provider: (id) => this.provider(id),
+      providerBadge: (id) => providerBadge(this.provider(id), 'md'),
     });
     this.viewer.load(parsed);
     if (jump) this.viewer.jumpTo(jump);
@@ -971,7 +1000,7 @@ const dashboard = {
       el('p.faint', {
         style: 'margin:0 0 10px;font-size:11.5px',
         text: 'Tags and notes are stored in the dashboard\u2019s own config. '
-          + 'Nothing is written into ~/.claude.',
+          + 'Nothing is written into any tool\u2019s own files.',
       }),
       el('label', { style: 'display:block;margin-bottom:4px;font-size:12px' }, ['Tags']),
       tagsInput,
@@ -1037,7 +1066,7 @@ const dashboard = {
     const message =
       `Move ${list.length} transcript${list.length === 1 ? '' : 's'} to the dashboard trash?\n\n`
       + preview + more
-      + `\n\n${bytes(totalBytes)} will be moved out of ~/.claude/projects into\n`
+      + `\n\n${bytes(totalBytes)} will be moved out of the tool\u2019s history into\n`
       + `~/.agentboard/trash, where you can restore it.\n`
       + 'Nothing is erased.';
 
@@ -1296,7 +1325,7 @@ const dashboard = {
 
     host.append(el('button.bordered', {
       text: 'Tags & note',
-      title: 'Kept in the dashboard config, not in ~/.claude',
+      title: 'Kept in the dashboard config, never in the tool\u2019s own files',
       onclick: () => this.editAnnotations(sessionId),
     }));
 
@@ -1483,7 +1512,7 @@ const dashboard = {
   async exportUsageCsv() {
     try {
       const text = await api.get('/api/usage/csv');
-      await this.saveFile('claude-usage.csv', text, 'csv');
+      await this.saveFile('agentboard-usage.csv', text, 'csv');
     } catch (error) {
       toast('Export failed', error.message, 'error');
     }
@@ -1582,7 +1611,11 @@ const dashboard = {
       el('div.title', { text: hit.title, style: 'font-size:12px' }),
       el('div', { html: highlighted, style: 'font-size:11.5px;color:var(--text-dim);line-height:1.5' }),
       el('div.sub', {}, [
-        el('span', { text: hit.role === 'user' ? 'you' : 'claude' }),
+        providerBadge(this.provider(hit.provider)),
+        el('span', {
+          text: hit.role === 'user' ? 'you'
+            : ((this.provider(hit.provider) || {}).assistant_label || hit.role || '').toLowerCase(),
+        }),
         el('span', { text: when(hit.timestamp) }),
         el('span.faint', { text: 'line ' + hit.line }),
       ]),
@@ -1675,16 +1708,29 @@ const dashboard = {
       bytes(stats.file_size);
   },
 
-  /** Friendly screen for a machine with no Claude Code history yet. */
+  /**
+   * Friendly screen for a machine where no supported tool has history yet:
+   * every provider is listed with where it was looked for.
+   */
   renderEmptyState(boot) {
-    $('#session-content').replaceChildren(el('div.placeholder', {}, [
-      el('h2', { text: 'No Claude Code history found' }),
-      el('p', {}, [
-        'Nothing was found at ',
-        el('code', { text: boot.paths.projects_dir }),
-        '.',
-      ]),
-      el('p', { text: 'Run Claude Code once in a project and this list will fill in.' }),
+    const providers = (boot.providers || []).filter((p) => p.enabled);
+    $('#session-content').replaceChildren(el('div.placeholder.onboarding', {}, [
+      el('h2', { text: 'No AI assistant history found yet' }),
+      el('p', { text: 'Agentboard reads the local history of these tools. Use any of them once and its sessions appear here.' }),
+      el('ul.onboarding-list', {}, providers.map((p) => el('li', {}, [
+        providerBadge(p, 'md'),
+        el('div', {}, [
+          el('strong', { text: p.name }),
+          el('div.faint', {}, [
+            p.detection.installed ? 'installed, no history in ' : 'not installed \u00b7 looks in ',
+            el('code', { text: p.detection.root }),
+          ]),
+        ]),
+      ]))),
+      el('button.primary', {
+        text: 'Open settings',
+        onclick: () => this.setView('config'),
+      }),
     ]));
     $('#list-count').textContent = '0 sessions';
   },
@@ -1697,7 +1743,8 @@ const dashboard = {
       ['/', 'Focus the search box'],
       ['j / k', 'Next / previous session'],
       ['Enter', 'Open the highlighted session'],
-      ['1 2 3', 'Sessions / Usage / Config'],
+      ['1 2 3', 'Sessions / Usage / Settings'],
+      ['p', 'Switch to the next provider'],
       ['e', 'Expand every block in the conversation'],
       ['c', 'Collapse them again'],
       ['r', 'Resume the session in a terminal'],
