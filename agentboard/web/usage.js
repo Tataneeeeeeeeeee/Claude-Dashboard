@@ -192,9 +192,9 @@
       const available = (this.host ? this.host.clientWidth : 0) || 1200;
       // Below 900px the grid collapses to one column (see app.css).
       if (available <= 900) columns = 1;
-      const page = Math.min(1320, available) - 40;          // page padding
-      const column = columns === 1 ? page : (page - 13) / 2; // grid gap
-      return Math.max(320, Math.round(column - 30));         // card padding
+      const page = Math.min(1180, available) - 56;          // page padding
+      const column = columns === 1 ? page : (page - 14) / 2; // grid gap
+      return Math.max(320, Math.round(column - 40));         // card padding
     },
 
     /** Build the DOM for the current data. */
@@ -228,8 +228,30 @@
         page.append(...this.hero());
       }
       page.append(this.kpis());
-      page.append(this.cards());
+      page.append(...this.splitCards(this.cards()));
       this.host.replaceChildren(page);
+    },
+
+    /**
+     * Keep the two headline charts in view and fold the rest under a
+     * "More charts" disclosure, so the page tells a story before it shows
+     * every number. The disclosure remembers being opened.
+     */
+    splitCards(grid) {
+      const extra = Array.from(grid.children).slice(2);
+      if (!extra.length) return [grid];
+      const more = el('div.chart-grid');
+      more.append(...extra);
+      const details = el('details.usage-more', {}, [
+        el('summary', {}, [
+          el('span', { text: 'More charts' }),
+          el('span.usage-more-hint', { text: `${extra.length} more · tools, projects, models, activity` }),
+        ]),
+        more,
+      ]);
+      if (this.state.moreOpen) details.setAttribute('open', 'open');
+      details.addEventListener('toggle', () => { this.state.moreOpen = details.open; });
+      return [grid, details];
     },
 
     /* ------------------------------------------------------------ filters */
