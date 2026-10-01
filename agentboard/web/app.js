@@ -569,9 +569,14 @@ const dashboard = {
   },
 
   /**
-   * Draw the provider switcher: "All" plus one chip per enabled provider,
-   * each with its badge and session count. It is a radio group, so the
-   * arrow keys move between chips and Tab leaves it.
+   * Draw the agent picker: one button showing the current scope
+   * ("Agent: All agents" or the selected agent's badge and name) that
+   * opens a menu listing every enabled agent with its session count and
+   * detection state, plus a link to manage them.
+   *
+   * It follows the ARIA menu-button pattern: Enter, Space or the arrow
+   * keys open it; arrows, Home and End move; Enter selects; Escape or Tab
+   * closes and gives focus back to the button.
    */
   renderProviderSwitch() {
     const host = $('#provider-switch');
@@ -579,54 +584,154 @@ const dashboard = {
     if (this.state.provider !== 'all' && !providers.some((p) => p.id === this.state.provider)) {
       this.state.provider = 'all';
     }
+    host.hidden = providers.length < 1;
     const total = providers.reduce((sum, p) => sum + (p.stats.sessions || 0), 0);
-    const options = [{ id: 'all', name: 'All providers', short: 'All', count: total }]
-      .concat(providers.map((p) => ({
-        id: p.id, name: p.name, short: p.name, count: p.stats.sessions || 0, provider: p,
-      })));
+    const current = this.provider(this.state.provider);
 
-    const chips = options.map((option) => {
-      const on = option.id === this.state.provider;
-      const missing = option.provider && !option.provider.detection.detected;
-      const chip = el('button.provider-chip', {
-        role: 'radio',
-        'aria-checked': on ? 'true' : 'false',
-        tabindex: on ? '0' : '-1',
-        class: [on ? 'on' : '', missing ? 'missing' : ''].join(' ').trim(),
-        title: option.provider
-          ? `${option.name}: ${option.count} session${option.count === 1 ? '' : 's'}`
-            + (missing ? ' \u00b7 not detected on this machine' : '')
-          : `Every provider: ${option.count} sessions`,
-        dataset: { provider: option.id },
-        onclick: () => this.setProvider(option.id),
-        onkeydown: (event) => {
-          const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-          if (!step) return;
+    const trigger = el('button.agent-picker-button', {
+      id: 'agent-picker-button',
+      type: 'button',
+      'aria-haspopup': 'menu',
+      'aria-expanded': 'false',
+      'aria-controls': 'agent-picker-menu',
+      title: 'Choose which agent every view shows (p)',
+      class: current ? 'scoped' : '',
+      style: current ? `--p-color:${current.color}` : null,
+      onclick: () => this.toggleAgentMenu(),
+      onkeydown: (event) => {
+        if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
           event.preventDefault();
           event.stopPropagation();
-          this.cycleProvider(step, true);
+          this.toggleAgentMenu(true, event.key === 'ArrowUp' ? 'last' : 'current');
+        }
+      },
+    }, [
+      el('span.agent-picker-label', { text: 'Agent' }),
+      current ? providerBadge(current) : el('span.agent-all-icon', { 'aria-hidden': 'true' }),
+      el('span.agent-picker-name', { text: current ? current.name : 'All agents' }),
+      el('span.agent-picker-count.num', {
+        text: String(current ? current.stats.sessions || 0 : total),
+        'aria-label': 'sessions',
+      }),
+      el('span.agent-picker-caret', { 'aria-hidden': 'true' }),
+    ]);
+
+    const item = (id, label, count, provider) => {
+      const on = id === this.state.provider;
+      const missing = provider && !provider.detection.detected;
+      return el('button.agent-option', {
+        type: 'button',
+        role: 'menuitemradio',
+        'aria-checked': on ? 'true' : 'false',
+        tabindex: '-1',
+        class: missing ? 'missing' : '',
+        dataset: { provider: id },
+        title: missing ? provider.detection.reason : '',
+        onclick: () => { this.closeAgentMenu(true); this.setProvider(id); },
+      }, [
+        el('span.agent-check', { 'aria-hidden': 'true', text: on ? '✓' : '' }),
+        provider ? providerBadge(provider) : el('span.agent-all-icon', { 'aria-hidden': 'true' }),
+        el('span.agent-option-name', { text: label }),
+        missing
+          ? el('span.agent-option-state', { text: 'not detected' })
+          : el('span.agent-option-count.num', { text: String(count) }),
+      ]);
+    };
+
+    const menu = el('div.agent-menu', {
+      id: 'agent-picker-menu',
+      role: 'menu',
+      'aria-labelledby': 'agent-picker-button',
+      hidden: 'hidden',
+      onkeydown: (event) => this.onAgentMenuKey(event),
+    }, [
+      item('all', 'All agents', total, null),
+      el('div.agent-menu-sep', { role: 'separator' }),
+      ...providers.map((p) => item(p.id, p.name, p.stats.sessions || 0, p)),
+      el('div.agent-menu-sep', { role: 'separator' }),
+      el('button.agent-option.agent-manage', {
+        type: 'button',
+        role: 'menuitem',
+        tabindex: '-1',
+        onclick: () => {
+          this.closeAgentMenu(false);
+          this.setView('config');
+          if (window.configView && window.configView.openTab) window.configView.openTab('providers');
         },
       }, [
-        option.provider ? providerBadge(option.provider) : null,
-        el('span.provider-chip-name', { text: option.short }),
-        el('span.provider-chip-count.num', { text: String(option.count) }),
-      ]);
-      return chip;
-    });
-    host.replaceChildren(...chips);
-    host.hidden = providers.length < 1;
+        el('span.agent-check', { 'aria-hidden': 'true' }),
+        el('span.agent-manage-icon', { 'aria-hidden': 'true', text: '⚙' }),
+        el('span.agent-option-name', { text: 'Manage agents…' }),
+      ]),
+    ]);
+    host.replaceChildren(trigger, menu);
   },
 
-  /** Move the selection to the next or previous provider. */
-  cycleProvider(step, focus = false) {
+  /** Open or close the agent menu; `focus` picks the item to focus. */
+  toggleAgentMenu(open, focus = 'current') {
+    const menu = $('#agent-picker-menu');
+    if (!menu) return;
+    const willOpen = open === undefined ? menu.hidden : open;
+    if (!willOpen) { this.closeAgentMenu(true); return; }
+    menu.hidden = false;
+    $('#agent-picker-button').setAttribute('aria-expanded', 'true');
+    const items = $$('[role^="menuitem"]', menu);
+    const target = focus === 'last' ? items[items.length - 1]
+      : items.find((node) => node.getAttribute('aria-checked') === 'true') || items[0];
+    if (target) target.focus();
+    // Any click outside closes it.
+    this.agentMenuOutside = (event) => {
+      if (!event.target.closest('#provider-switch')) this.closeAgentMenu(false);
+    };
+    setTimeout(() => document.addEventListener('mousedown', this.agentMenuOutside), 0);
+  },
+
+  /** Close the agent menu, optionally returning focus to its button. */
+  closeAgentMenu(refocus) {
+    const menu = $('#agent-picker-menu');
+    if (menu) menu.hidden = true;
+    const button = $('#agent-picker-button');
+    if (button) {
+      button.setAttribute('aria-expanded', 'false');
+      if (refocus) button.focus();
+    }
+    if (this.agentMenuOutside) {
+      document.removeEventListener('mousedown', this.agentMenuOutside);
+      this.agentMenuOutside = null;
+    }
+  },
+
+  /** Keyboard handling inside the open menu. */
+  onAgentMenuKey(event) {
+    const items = $$('#agent-picker-menu [role^="menuitem"]');
+    const index = items.indexOf(document.activeElement);
+    const move = (to) => { event.preventDefault(); items[(to + items.length) % items.length].focus(); };
+    event.stopPropagation();
+    switch (event.key) {
+      case 'ArrowDown': move(index + 1); break;
+      case 'ArrowUp': move(index - 1); break;
+      case 'Home': move(0); break;
+      case 'End': move(items.length - 1); break;
+      case 'Escape': event.preventDefault(); this.closeAgentMenu(true); break;
+      case 'Tab': this.closeAgentMenu(false); break;
+      default:
+        // Type-ahead: jump to the first agent starting with that letter.
+        if (event.key.length === 1 && /\S/.test(event.key)) {
+          const letter = event.key.toLowerCase();
+          const hit = items.findIndex((node, i) => i > index
+            && node.textContent.trim().toLowerCase().startsWith(letter));
+          const wrap = hit >= 0 ? hit
+            : items.findIndex((node) => node.textContent.trim().toLowerCase().startsWith(letter));
+          if (wrap >= 0) move(wrap);
+        }
+    }
+  },
+
+  /** Move the selection to the next or previous agent. */
+  cycleProvider(step) {
     const ids = ['all'].concat(this.switchableProviders().map((p) => p.id));
     const index = ids.indexOf(this.state.provider);
-    const next = ids[(index + step + ids.length) % ids.length];
-    this.setProvider(next);
-    if (focus) {
-      const chip = $(`#provider-switch [data-provider="${next}"]`);
-      if (chip) chip.focus();
-    }
+    this.setProvider(ids[(index + step + ids.length) % ids.length]);
   },
 
   /**
