@@ -39,8 +39,9 @@ def _load_builtins() -> None:
     """Import the built-in adapters so they register themselves."""
     from .claude import ClaudeAdapter
     from .codex import CodexAdapter
+    from .gemini import GeminiAdapter
 
-    for cls in (ClaudeAdapter, CodexAdapter):
+    for cls in (ClaudeAdapter, CodexAdapter, GeminiAdapter):
         BUILTIN.setdefault(cls.id, cls)
 
 

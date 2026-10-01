@@ -293,9 +293,15 @@ class ProviderAdapter(ABC):
         return ""
 
     def resume_command(self, session_id: str, config: Dict[str, Any] | None = None) -> str | None:
-        """The shell command that reopens *session_id*, or ``None``."""
-        template = self.settings.get("resume_command") or self.default_resume_command
-        if not template or not self.capabilities.resume:
+        """The shell command that reopens *session_id*, or ``None``.
+
+        A command the user configured is always honoured, so a tool that
+        gains a resume flag can be supported before its adapter is updated.
+        """
+        template = self.settings.get("resume_command") or (
+            self.default_resume_command if self.capabilities.resume else ""
+        )
+        if not template:
             return None
         return str(template).replace("{session_id}", session_id)
 
@@ -364,6 +370,7 @@ class ProviderAdapter(ABC):
                 "resume_command": self.settings.get("resume_command") or "",
                 "pricing": self.settings.get("pricing") or {},
             },
+            "can_resume": self.resume_command("x") is not None,
             "default_home": str(self.default_home()),
             "default_resume_command": self.default_resume_command,
             "default_pricing": self.default_pricing,

@@ -72,3 +72,12 @@ def fake_codex_home(tmp_path, monkeypatch) -> Path:
         shutil.copy(source, folder / source.name)
     monkeypatch.setenv("CODEX_HOME", str(home))
     return home
+
+
+@pytest.fixture
+def fake_gemini_home(tmp_path, monkeypatch) -> Path:
+    """A ``~/.gemini`` replica: ``$GEMINI_CLI_HOME/.gemini/tmp/<hash>/chats``."""
+    base = tmp_path / "gemini-user"
+    shutil.copytree(FIXTURES / "gemini", base / ".gemini" / "tmp")
+    monkeypatch.setenv("GEMINI_CLI_HOME", str(base))
+    return base / ".gemini"

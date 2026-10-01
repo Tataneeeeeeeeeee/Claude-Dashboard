@@ -177,7 +177,12 @@ def test_owns_matches_suffix_and_location(notes_dir, tmp_path):
 
 
 def test_a_provider_without_resume_returns_no_command(notes_dir):
-    assert NotesAdapter(notes_dir, {"resume_command": "notes open {session_id}"}).resume_command("n1") is None
+    assert NotesAdapter(notes_dir).resume_command("n1") is None
+
+
+def test_a_configured_resume_command_is_always_honoured(notes_dir):
+    adapter = NotesAdapter(notes_dir, {"resume_command": "notes open {session_id}"})
+    assert adapter.resume_command("n1") == "notes open n1"
 
 
 def test_describe_carries_what_the_ui_needs(notes_dir):
