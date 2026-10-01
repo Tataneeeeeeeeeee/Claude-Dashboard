@@ -37,7 +37,9 @@ from .paths import (
     trash_dir,
 )
 from . import actions, content, exporters
-from .usage import aggregate, pricing_resolver, session_cost, stats_csv
+from .providers.generic import SpecError, validate_spec
+from .providers.registry import BUILTIN, get_registry, reload_registry
+from .usage import aggregate, by_provider, compare_providers, pricing_resolver, session_cost, stats_csv
 
 __all__ = ["create_app"]
 
@@ -84,6 +86,19 @@ def _parse_session(meta, **options) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Could not read {path}: {exc}") from exc
 
 
+def _valid_pricing(table: Any) -> bool:
+    """A pricing table: model id -> {counter: non-negative number}."""
+    if not isinstance(table, dict):
+        return False
+    for row in table.values():
+        if not isinstance(row, dict):
+            return False
+        for value in row.values():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                return False
+    return True
+
+
 def _dir_size(path: Path) -> int:
     """Total bytes under *path*, ignoring anything unreadable."""
     total = 0
@@ -96,6 +111,34 @@ def _dir_size(path: Path) -> int:
     return total
 
 
+def _providers_payload(config: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Every known provider - enabled or not, detected or not - with the
+    numbers its card shows."""
+    config = config or load_config()
+    registry = get_registry()
+    index = get_index()
+    indexed = {adapter.id for adapter in index.adapters}
+    metas = index.sessions
+    totals = {row["provider"]: row for row in by_provider(metas, pricing_resolver(config))}
+    providers = []
+    known = list(registry.adapters)
+    # An index pinned to its own adapters (tests, embedding) may hold some
+    # the registry does not.
+    known += [a for a in index.adapters if registry.get(a.id) is None]
+    for adapter in known:
+        described = adapter.describe()
+        described["indexed"] = adapter.id in indexed
+        row = totals.get(adapter.id) or {}
+        described["stats"] = {
+            key: row.get(key, 0)
+            for key in ("sessions", "messages", "total_tokens", "cost", "tool_calls",
+                        "active_days", "projects")
+        }
+        described["stats"]["last_activity"] = row.get("last_activity")
+        providers.append(described)
+    return {"providers": providers, "errors": registry.errors}
+
+
 def _bootstrap_payload() -> Dict[str, Any]:
     """Everything the UI needs on first paint."""
     index = get_index()
@@ -104,6 +147,8 @@ def _bootstrap_payload() -> Dict[str, Any]:
     home = claude_home()
     return {
         "version": __version__,
+        "product": PRODUCT_NAME,
+        "providers": _providers_payload(config)["providers"],
         "config": config,
         "stats": index.stats(),
         "distinct": index.distinct(),
@@ -121,6 +166,7 @@ def _bootstrap_payload() -> Dict[str, Any]:
 
 def _sessions_payload(
     *,
+    provider: Optional[str] = None,
     project: Optional[str] = None,
     model: Optional[str] = None,
     tool: Optional[str] = None,
@@ -142,6 +188,7 @@ def _sessions_payload(
     config = load_config()
     metas = index.filter(
         project=project,
+        provider=provider,
         model=model,
         tool=tool,
         branch=branch,
@@ -180,28 +227,46 @@ async def _lifespan(app: FastAPI):
     except Exception as exc:  # pragma: no cover - defensive
         app.state.purge_result = {"error": f"{type(exc).__name__}: {exc}"}
 
-    if load_config().get("auto_refresh", True):
-        def refreshed(paths: Set[str]) -> None:
-            """Re-scan the transcripts that changed and record a revision."""
-            index = get_index()
-            for path in paths:
-                index.refresh_path(path)
-            app.state.revision += 1
-            app.state.last_change = datetime.now(timezone.utc).isoformat()
-
-        watchers = []
-        for adapter in get_index().adapters:
-            if not adapter.capabilities.live:
-                continue
-            try:
-                watchers.extend(adapter.watch(refreshed))
-            except Exception:  # pragma: no cover - defensive
-                continue
-        app.state.watchers = watchers
-        app.state.watcher = watchers[0] if watchers else None
+    _start_watchers(app)
     yield
+    _stop_watchers(app)
+
+
+def _stop_watchers(app: FastAPI) -> None:
+    """Stop every live watcher."""
     for watcher in getattr(app.state, "watchers", []) or []:
         watcher.stop()
+    app.state.watchers = []
+    app.state.watcher = None
+
+
+def _start_watchers(app: FastAPI) -> None:
+    """Watch every indexed provider that updates live, if auto-refresh is on.
+
+    Called at start-up and again whenever the provider set changes.
+    """
+    _stop_watchers(app)
+    if not load_config().get("auto_refresh", True):
+        return
+
+    def refreshed(paths: Set[str]) -> None:
+        """Re-scan the sessions that changed and record a revision."""
+        index = get_index()
+        for path in paths:
+            index.refresh_path(path)
+        app.state.revision += 1
+        app.state.last_change = datetime.now(timezone.utc).isoformat()
+
+    watchers = []
+    for adapter in get_index().adapters:
+        if not adapter.capabilities.live:
+            continue
+        try:
+            watchers.extend(adapter.watch(refreshed))
+        except Exception:  # pragma: no cover - defensive
+            continue
+    app.state.watchers = watchers
+    app.state.watcher = watchers[0] if watchers else None
 
 
 def create_app() -> FastAPI:
@@ -265,6 +330,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/sessions")
     def list_sessions(
+        provider: Optional[str] = None,
         project: Optional[str] = None,
         model: Optional[str] = None,
         tool: Optional[str] = None,
@@ -282,7 +348,7 @@ def create_app() -> FastAPI:
     ) -> Dict[str, Any]:
         """Filtered, sorted session list for the sidebar."""
         return _sessions_payload(
-            project=project, model=model, tool=tool, branch=branch,
+            provider=provider, project=project, model=model, tool=tool, branch=branch,
             since=since, until=until, query=query, tag=tag,
             only_favorites=only_favorites, min_messages=min_messages,
             max_messages=max_messages, sort=sort, limit=limit, offset=offset,
@@ -395,6 +461,7 @@ def create_app() -> FastAPI:
     def search(
         q: str = Query(..., min_length=1),
         project: Optional[str] = None,
+        provider: Optional[str] = None,
         regex: bool = False,
         case_sensitive: bool = False,
         limit: Optional[int] = None,
@@ -410,6 +477,7 @@ def create_app() -> FastAPI:
             project=project,
             regex=regex,
             case_sensitive=case_sensitive,
+            provider=provider,
         )
 
     # --------------------------------------------------------- maintenance
@@ -631,6 +699,7 @@ def create_app() -> FastAPI:
     def usage_dashboard(
         granularity: str = Query("day", pattern="^(day|week|month)$"),
         project: Optional[str] = None,
+        provider: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         include_home_size: bool = False,
@@ -639,17 +708,118 @@ def create_app() -> FastAPI:
         _index_ready()
         index = get_index()
         config = load_config()
-        metas = index.filter(project=project, since=since, until=until)
+        metas = index.filter(project=project, provider=provider, since=since, until=until)
         home_size = _dir_size(claude_home()) if include_home_size else None
         return aggregate(metas, granularity, pricing_resolver(config), home_size)
 
+    @app.get("/api/usage/compare")
+    def usage_compare(
+        granularity: str = Query("day", pattern="^(day|week|month)$"),
+        project: Optional[str] = None,
+        provider: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Usage, cost, sessions and activity side by side, per provider."""
+        _index_ready()
+        config = load_config()
+        metas = get_index().filter(project=project, provider=provider, since=since, until=until)
+        return compare_providers(metas, granularity, pricing_resolver(config))
+
     @app.get("/api/usage/csv", response_class=PlainTextResponse)
-    def usage_csv(project: Optional[str] = None) -> str:
+    def usage_csv(project: Optional[str] = None, provider: Optional[str] = None) -> str:
         """Aggregated per-session stats as CSV text."""
         _index_ready()
         config = load_config()
-        metas = get_index().filter(project=project)
+        metas = get_index().filter(project=project, provider=provider)
         return stats_csv(metas, pricing_resolver(config))
+
+    # -------------------------------------------------------- providers
+
+    def _providers_changed() -> Dict[str, Any]:
+        """Apply a provider change: rebuild the registry, the index and
+        the watchers, then report the new state."""
+        reload_registry()
+        get_index().build()
+        _start_watchers(app)
+        app.state.revision += 1
+        app.state.last_change = datetime.now(timezone.utc).isoformat()
+        return _providers_payload()
+
+    @app.get("/api/providers")
+    def providers_list() -> Dict[str, Any]:
+        """Every known provider, its detection state, capabilities and totals."""
+        _index_ready()
+        return _providers_payload()
+
+    @app.post("/api/providers/rescan")
+    def providers_rescan() -> Dict[str, Any]:
+        """Detect installed tools again and re-index."""
+        return _providers_changed()
+
+    @app.patch("/api/providers/{provider_id}")
+    def provider_update(provider_id: str, patch: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Change one provider's settings: enabled, path, resume command or
+        pricing overrides.  Unknown keys are refused."""
+        if get_registry().get(provider_id) is None:
+            raise HTTPException(status_code=404, detail=f"No provider {provider_id!r}")
+        allowed = {"enabled", "path", "resume_command", "pricing"}
+        unknown = sorted(set(patch) - allowed)
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"Unknown setting(s): {', '.join(unknown)}")
+        if "enabled" in patch and not isinstance(patch["enabled"], bool):
+            raise HTTPException(status_code=400, detail="enabled must be true or false")
+        for key in ("path", "resume_command"):
+            if key in patch and not isinstance(patch[key], str):
+                raise HTTPException(status_code=400, detail=f"{key} must be text")
+        if "pricing" in patch and not _valid_pricing(patch["pricing"]):
+            raise HTTPException(
+                status_code=400,
+                detail="pricing must map model ids to rows of non-negative numbers",
+            )
+        config = load_config()
+        current = dict((config.get("providers") or {}).get(provider_id) or {})
+        current.update(patch)
+        providers = dict(config.get("providers") or {})
+        providers[provider_id] = current
+        # Pricing is replaced, not merged, so a removed row really goes.
+        save_config({**config, "providers": providers})
+        return _providers_changed()
+
+    @app.post("/api/providers/custom")
+    def provider_add(spec: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Add or replace a spec-defined provider in the config."""
+        config = load_config()
+        custom = [s for s in (config.get("custom_providers") or []) if isinstance(s, dict)]
+        replacing = spec.get("id") if any(s.get("id") == spec.get("id") for s in custom) else None
+        taken = {a.id for a in get_registry().adapters if a.id != replacing} | set(BUILTIN)
+        try:
+            clean = validate_spec(spec, taken)
+        except SpecError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        custom = [s for s in custom if s.get("id") != clean["id"]] + [spec]
+        save_config({**config, "custom_providers": custom})
+        return _providers_changed()
+
+    @app.delete("/api/providers/custom/{provider_id}")
+    def provider_remove(provider_id: str) -> Dict[str, Any]:
+        """Remove a spec-defined provider from the config.  Its sessions
+        leave the index; the tool's own files are never touched."""
+        config = load_config()
+        custom = [s for s in (config.get("custom_providers") or []) if isinstance(s, dict)]
+        if not any(s.get("id") == provider_id for s in custom):
+            adapter = get_registry().get(provider_id)
+            source = getattr(adapter, "source", "") if adapter is not None else ""
+            if source and not source.startswith("custom_providers"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{provider_id!r} is defined in {source}; delete that file to remove it",
+                )
+            raise HTTPException(status_code=404, detail=f"No custom provider {provider_id!r}")
+        remaining = [s for s in custom if s.get("id") != provider_id]
+        providers = {k: v for k, v in (config.get("providers") or {}).items() if k != provider_id}
+        save_config({**config, "custom_providers": remaining, "providers": providers})
+        return _providers_changed()
 
     # ----------------------------------------------------------- config
 

@@ -28,6 +28,8 @@ from .parser import SessionMeta
 
 __all__ = [
     "pricing_resolver",
+    "by_provider",
+    "compare_providers",
     "session_cost",
     "aggregate",
     "kpi_cards",
@@ -263,6 +265,89 @@ def by_model(
     return out
 
 
+def by_provider(
+    metas: Sequence[SessionMeta],
+    pricing: PricingSource = None,
+) -> List[Dict[str, Any]]:
+    """Per-provider totals: the headline numbers of the comparison view."""
+    resolve = _pricing(pricing)
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for meta in metas:
+        bucket = buckets.setdefault(meta.provider, {
+            **_empty_bucket(), "provider": meta.provider, "file_size": 0,
+            "duration_seconds": 0.0, "files_touched": 0, "active_days": set(),
+            "projects": set(), "reported_cost": 0.0, "first_activity": None,
+            "last_activity": None, "models": set(),
+        })
+        for model, row in meta.models.items():
+            _add_model_row(bucket, model, row, resolve(meta.provider))
+            bucket["models"].add(normalise_model(model))
+        bucket["sessions"] += 1
+        bucket["tool_calls"] += meta.tool_calls
+        bucket["file_size"] += meta.file_size
+        bucket["duration_seconds"] += meta.duration_seconds
+        bucket["files_touched"] += len(meta.files_touched)
+        bucket["active_days"].update(meta.daily)
+        bucket["projects"].add(meta.project_path or meta.project_dir)
+        bucket["reported_cost"] += meta.reported_cost_usd or 0.0
+        # Messages come from the session, not the model rows, so a tool
+        # that records no usage still reports its conversation volume.
+        bucket["messages"] += meta.message_count - sum(
+            row.get("messages", 0) for row in meta.models.values()
+        )
+        for edge, pick in (("first_activity", min), ("last_activity", max)):
+            stamp = meta.first_timestamp if edge == "first_activity" else meta.last_timestamp
+            if stamp:
+                bucket[edge] = pick(filter(None, (bucket[edge], stamp)))
+    out = []
+    for bucket in sorted(buckets.values(), key=lambda b: b["sessions"], reverse=True):
+        sessions = bucket["sessions"] or 1
+        out.append({
+            **bucket,
+            "cost": round(bucket["cost"], 6),
+            "reported_cost": round(bucket["reported_cost"], 6),
+            "active_days": len(bucket["active_days"]),
+            "projects": len(bucket["projects"]),
+            "models": sorted(bucket["models"]),
+            "avg_messages": round(bucket["messages"] / sessions, 1),
+            "avg_tokens": int(bucket["total_tokens"] / sessions),
+            "avg_cost": round(bucket["cost"] / sessions, 6),
+            "avg_duration_seconds": round(bucket["duration_seconds"] / sessions, 1),
+        })
+    return out
+
+
+def compare_providers(
+    metas: Sequence[SessionMeta],
+    granularity: str = "day",
+    pricing: PricingSource = None,
+) -> Dict[str, Any]:
+    """Everything the all-providers overview renders.
+
+    Each provider's time series is aligned on the same periods, with zero
+    rows where it was idle, so the series can be stacked or overlaid.
+    """
+    resolve = _pricing(pricing)
+    grouped: Dict[str, List[SessionMeta]] = defaultdict(list)
+    for meta in metas:
+        grouped[meta.provider].append(meta)
+    series = {provider: timeseries(group, granularity, resolve) for provider, group in grouped.items()}
+    periods = sorted({row["period"] for rows in series.values() for row in rows})
+    aligned: Dict[str, List[Dict[str, Any]]] = {}
+    for provider, rows in series.items():
+        by_period = {row["period"]: row for row in rows}
+        aligned[provider] = [by_period.get(period, {"period": period, **_empty_bucket()})
+                             for period in periods]
+    return {
+        "granularity": granularity,
+        "providers": by_provider(metas, resolve),
+        "periods": periods,
+        "timeseries": aligned,
+        "models": by_model(metas, resolve),
+        "heatmaps": {provider: heatmap(group) for provider, group in grouped.items()},
+    }
+
+
 def tool_stats(metas: Sequence[SessionMeta]) -> Dict[str, Any]:
     """Tool-call counts overall, per project, and grouped by MCP server."""
     overall: Dict[str, int] = defaultdict(int)
@@ -457,6 +542,7 @@ def aggregate(
         "granularity": granularity,
         "projects": by_project(metas, resolve),
         "models": by_model(metas, resolve),
+        "providers": by_provider(metas, resolve),
         "tools": tool_stats(metas),
         "heatmap": heatmap(metas),
         "disk": disk_usage(metas, claude_home_size),
