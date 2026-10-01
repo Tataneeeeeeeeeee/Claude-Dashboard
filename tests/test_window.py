@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from claude_dashboard.app import main
-from claude_dashboard.config import load_config
-from claude_dashboard.window import WindowState, load_window_state, save_window_state
+from agentboard.app import main
+from agentboard.config import load_config
+from agentboard.window import WindowState, load_window_state, save_window_state
 
 
 def test_defaults_match_the_requested_geometry():
@@ -69,7 +69,9 @@ def test_version_flag(capsys):
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])
     assert exit_info.value.code == 0
-    assert "1.0.0" in capsys.readouterr().out
+    from agentboard import __version__
+
+    assert __version__ in capsys.readouterr().out
 
 
 def test_position_is_not_persisted_on_wayland(monkeypatch):
@@ -77,7 +79,7 @@ def test_position_is_not_persisted_on_wayland(monkeypatch):
     import importlib
 
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
-    import claude_dashboard.app as app_module
+    import agentboard.app as app_module
 
     importlib.reload(app_module)
     assert app_module.POSITION_IS_KNOWABLE is False

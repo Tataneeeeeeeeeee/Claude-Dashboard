@@ -27,11 +27,11 @@ def main() -> int:
         # The package is importable from the bundle; its web directory and
         # the icons live beside it rather than next to a source checkout.
         sys.path.insert(0, str(root))
-        os.environ.setdefault("CLAUDE_DASHBOARD_BUNDLE", str(root))
+        os.environ.setdefault("AGENTBOARD_BUNDLE", str(root))
     else:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-    from claude_dashboard.app import main as run
+    from agentboard.app import main as run
 
     return run()
 

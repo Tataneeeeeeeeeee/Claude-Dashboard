@@ -11,13 +11,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from claude_dashboard import indexer
+from agentboard import indexer
 
 
 @pytest.fixture
 def client(fake_claude_home, monkeypatch):
     """A test client whose index points at the fake ``~/.claude``."""
-    from claude_dashboard.api import create_app
+    from agentboard.api import create_app
 
     fresh = indexer.SessionIndex(fake_claude_home / "projects")
     monkeypatch.setattr(indexer, "_INSTANCE", fresh, raising=False)

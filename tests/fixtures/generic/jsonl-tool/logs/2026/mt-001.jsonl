@@ -1,0 +1,6 @@
+{"session_id": "mt-001", "cwd": "/home/tester/demo", "role": "user", "content": "summarise the changelog", "ts": "2026-09-24T12:00:00Z"}
+{"role": "assistant", "content": "Reading it.", "ts": "2026-09-24T12:00:02Z", "model": "my-model-large", "response_id": "r1", "tool": {"name": "read", "args": {"path": "CHANGELOG.md"}, "result": "## 1.0\n- first release"}, "usage": {"prompt_tokens": 5000, "completion_tokens": 200, "cached_tokens": 4000}, "cost_usd": 0.004}
+{"role": "assistant", "content": " (continued)", "ts": "2026-09-24T12:00:03Z", "model": "my-model-large", "response_id": "r1", "usage": {"prompt_tokens": 5000, "completion_tokens": 200, "cached_tokens": 4000}, "cost_usd": 0.0}
+{"role": "assistant", "content": "Version 1.0 was the first release.", "ts": "2026-09-24T12:00:09Z", "model": "my-model-large", "response_id": "r2", "usage": {"prompt_tokens": 6000, "completion_tokens": 50, "cached_tokens": 5000}, "cost_usd": 0.002}
+{"role": "system", "content": "context window 40% used", "ts": "2026-09-24T12:00:10Z"}
+not json

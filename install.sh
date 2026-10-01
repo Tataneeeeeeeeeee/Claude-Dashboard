@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Install Claude Code Dashboard and create a `claude-dashboard` command.
+# Install Agentboard and create a `agentboard` command.
 #
 #   curl -fsSL <url>/install.sh | bash
 #   ./install.sh                      # from a checkout
 #   ./install.sh --uninstall
 #
-# Installs into ~/.local/share/claude-dashboard and puts a launcher in
+# Installs into ~/.local/share/agentboard and puts a launcher in
 # ~/.local/bin. Nothing is written outside those two directories and, on
 # Linux, the XDG desktop-entry directory.
 set -euo pipefail
 
-PREFIX="${CLAUDE_DASHBOARD_PREFIX:-$HOME/.local/share/claude-dashboard}"
-BINDIR="${CLAUDE_DASHBOARD_BIN:-$HOME/.local/bin}"
+PREFIX="${AGENTBOARD_PREFIX:-$HOME/.local/share/agentboard}"
+BINDIR="${AGENTBOARD_BIN:-$HOME/.local/bin}"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-LAUNCHER="$BINDIR/claude-dashboard"
+LAUNCHER="$BINDIR/agentboard"
 
 # Where to fetch the source when this script is piped into a shell rather
 # than run from a checkout. Override to install a fork or a branch:
-#   curl -fsSL .../install.sh | CLAUDE_DASHBOARD_SRC=<url-or-repo> bash
+#   curl -fsSL .../install.sh | AGENTBOARD_SRC=<url-or-repo> bash
 DEFAULT_SRC="https://github.com/Tataneeeeeeeeeee/Claude-Dashboard/archive/refs/heads/main.tar.gz"
-SRC="${CLAUDE_DASHBOARD_SRC:-$DEFAULT_SRC}"
+SRC="${AGENTBOARD_SRC:-$DEFAULT_SRC}"
 
 say()  { printf '%s\n' "$*"; }
 # A host can answer 200 with an HTML page instead of an archive - GitHub
@@ -38,7 +38,7 @@ The server answered, but with $2 rather than a package. That usually means:
 Push your code first, then run this again. To install from a local copy
 meanwhile:
 
-  CLAUDE_DASHBOARD_SRC=/path/to/checkout bash install.sh
+  AGENTBOARD_SRC=/path/to/checkout bash install.sh
 MSG
 )"
 }
@@ -46,13 +46,35 @@ step() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Before the rename the app was installed as `claude-dashboard`. Those
+# pieces are recognised by their contents and removed, so two copies never
+# coexist. Its data directory is moved by the app itself on first run.
+LEGACY_PREFIX="$HOME/.local/share/claude-dashboard"
+LEGACY_LAUNCHER="$BINDIR/claude-dashboard"
+LEGACY_DESKTOP="$DESKTOP_DIR/claude-dashboard.desktop"
+
+remove_legacy() {
+  if [ -f "$LEGACY_LAUNCHER" ] && grep -q "written by install.sh" "$LEGACY_LAUNCHER" 2>/dev/null; then
+    rm -f "$LEGACY_LAUNCHER"
+    say "  removed the old launcher $LEGACY_LAUNCHER"
+  fi
+  if [ -f "$LEGACY_DESKTOP" ] && grep -q "Claude Code Dashboard" "$LEGACY_DESKTOP" 2>/dev/null; then
+    rm -f "$LEGACY_DESKTOP"
+  fi
+  if [ -f "$LEGACY_PREFIX/app/run_app.py" ] && [ -d "$LEGACY_PREFIX/venv" ]; then
+    rm -rf "$LEGACY_PREFIX"
+    say "  removed the old installation $LEGACY_PREFIX"
+  fi
+}
+
 # ----------------------------------------------------------- uninstall
 
 uninstall() {
-  step "Removing Claude Code Dashboard"
+  step "Removing Agentboard"
   rm -f  "$LAUNCHER"
-  rm -f  "$DESKTOP_DIR/claude-dashboard.desktop"
+  rm -f  "$DESKTOP_DIR/agentboard.desktop"
   rm -rf "$PREFIX"
+  remove_legacy
   # mimeinfo.cache in that directory is shared with every other desktop
   # entry, so refresh it rather than deleting it.
   command -v update-desktop-database >/dev/null 2>&1 \
@@ -60,10 +82,10 @@ uninstall() {
   say
   say "Removed the application, its virtualenv and the launcher."
   say "Your data is untouched:"
-  say "  ~/.claude              Claude Code's own files"
-  say "  ~/.claude-dashboard    this app's config, cache, trash and backups"
+  say "  ~/.agentboard    this app's config, cache, trash and backups"
+  say "  ~/.claude, ~/.codex, ~/.gemini, ...   each AI tool's own files"
   say
-  say "Delete ~/.claude-dashboard by hand if you want that gone too."
+  say "Delete ~/.agentboard by hand if you want that gone too."
   exit 0
 }
 
@@ -100,7 +122,7 @@ PY
     say  "    Arch            sudo pacman -S --needed webkit2gtk-4.1 python-gobject"
     say  "    Debian/Ubuntu   sudo apt install python3-gi gir1.2-webkit2-4.1"
     say  "    Fedora          sudo dnf install python3-gobject webkit2gtk4.1"
-    say  "  Installation continues; 'claude-dashboard --headless --browser' works meanwhile."
+    say  "  Installation continues; 'agentboard --headless --browser' works meanwhile."
   else
     say "  GTK WebKit backend found"
   fi
@@ -119,7 +141,7 @@ WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
 
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/claude_dashboard" ]; then
+if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/agentboard" ]; then
   step "Installing from this checkout"
   SOURCE="$SCRIPT_DIR"
   say "  $SOURCE"
@@ -152,8 +174,8 @@ elif [ -n "$SRC" ]; then
         not_an_archive "$SRC" "$(file -b "$WORK/src.zip" 2>/dev/null | cut -d, -f1)"
       fi
       unzip -q "$WORK/src.zip" -d "$WORK/unpacked" || die "could not unpack $SRC"
-      SOURCE="$(find "$WORK/unpacked" -maxdepth 2 -name claude_dashboard -type d -print -quit)"
-      [ -n "$SOURCE" ] || die "no claude_dashboard directory inside $SRC"
+      SOURCE="$(find "$WORK/unpacked" -maxdepth 2 -name agentboard -type d -print -quit)"
+      [ -n "$SOURCE" ] || die "no agentboard directory inside $SRC"
       SOURCE="$(dirname "$SOURCE")"
       ;;
     /*|./*)
@@ -173,20 +195,21 @@ elif [ -n "$SRC" ]; then
 else
   # Unreachable while DEFAULT_SRC is set, but a blanked variable should
   # still say something useful rather than fall through silently.
-  die "no source to install from: CLAUDE_DASHBOARD_SRC is empty. Leave it unset to install the published version."
+  die "no source to install from: AGENTBOARD_SRC is empty. Leave it unset to install the published version."
 fi
 
-[ -d "$SOURCE/claude_dashboard" ] || die "$SOURCE does not look like the project (no claude_dashboard/)"
+[ -d "$SOURCE/agentboard" ] || die "$SOURCE does not look like the project (no agentboard/)"
 
 # ------------------------------------------------------------- install
 
 step "Installing into $PREFIX"
+remove_legacy
 mkdir -p "$PREFIX" "$BINDIR"
 rm -rf "$PREFIX/app"
 mkdir -p "$PREFIX/app"
 
 # Copy only what the application needs at runtime.
-for item in claude_dashboard assets requirements.txt run_app.py README.md SCHEMA.md config.json; do
+for item in agentboard assets examples requirements.txt run_app.py README.md SCHEMA.md config.json; do
   [ -e "$SOURCE/$item" ] && cp -R "$SOURCE/$item" "$PREFIX/app/"
 done
 find "$PREFIX/app" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -208,7 +231,7 @@ step "Installing dependencies"
 step "Creating the launcher"
 cat > "$LAUNCHER" <<LAUNCHEREOF
 #!/usr/bin/env bash
-# Launcher for Claude Code Dashboard, written by install.sh.
+# Launcher for Agentboard, written by install.sh.
 #
 # Opens the window and returns straight away, so the terminal stays free
 # and closing it does not close the app.
@@ -221,7 +244,7 @@ set -eu
 
 PYTHON="$PREFIX/venv/bin/python"
 APP="$PREFIX/app/run_app.py"
-LOG="\${CLAUDE_DASHBOARD_HOME:-\$HOME/.claude-dashboard}/launch.log"
+LOG="\${AGENTBOARD_HOME:-\$HOME/.agentboard}/launch.log"
 
 # --foreground is consumed here; the application does not know it.
 if [ "\${1:-}" = "--foreground" ] || [ "\${1:-}" = "-F" ]; then
@@ -231,7 +254,7 @@ fi
 
 for arg in "\$@"; do
   case "\$arg" in
-    --check|--version|--headless|--browser|--debug|-h|--help)
+    --check|--version|--headless|--browser|--debug|--detect-providers|-h|--help)
       exec "\$PYTHON" "\$APP" "\$@"
       ;;
   esac
@@ -250,7 +273,7 @@ disown 2>/dev/null || true
 # backend, a broken virtualenv - surface immediately.
 sleep 1
 if kill -0 "\$pid" 2>/dev/null; then
-  echo "Claude Code Dashboard started (pid \$pid)."
+  echo "Agentboard started (pid \$pid)."
 else
   echo "error: it exited immediately. Last lines of \$LOG:" >&2
   tail -n 20 "\$LOG" >&2
@@ -262,11 +285,11 @@ say "  $LAUNCHER"
 
 if [ "$OS" = "Linux" ]; then
   mkdir -p "$DESKTOP_DIR"
-  cat > "$DESKTOP_DIR/claude-dashboard.desktop" <<DESKTOPEOF
+  cat > "$DESKTOP_DIR/agentboard.desktop" <<DESKTOPEOF
 [Desktop Entry]
 Type=Application
-Name=Claude Code Dashboard
-Comment=Browse and analyse the data Claude Code stores in ~/.claude
+Name=Agentboard
+Comment=Browse and compare the local history of your AI coding assistants
 Exec=$LAUNCHER
 Icon=$PREFIX/app/assets/icon.png
 Terminal=false
@@ -275,7 +298,7 @@ StartupWMClass=run_app.py
 DESKTOPEOF
   command -v update-desktop-database >/dev/null 2>&1 \
     && update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
-  say "  $DESKTOP_DIR/claude-dashboard.desktop"
+  say "  $DESKTOP_DIR/agentboard.desktop"
 fi
 
 # --------------------------------------------------------------- verify
@@ -287,10 +310,19 @@ else
   die "the launcher did not run. Try: $VPY $PREFIX/app/run_app.py --check"
 fi
 
+# ------------------------------------------------------------ providers
+
+# Find every supported AI tool and point its adapter at its history. A
+# data folder set only through an environment variable (CODEX_HOME, ...)
+# is remembered, since the desktop launcher will not inherit it.
+step "Detecting AI tools"
+"$VPY" "$PREFIX/app/run_app.py" --detect-providers \
+  || warn "provider detection failed; run 'agentboard --detect-providers' later, or use Settings > Providers."
+
 say
 say "Installed. Start it with:"
 say
-say "    claude-dashboard"
+say "    agentboard"
 say
 
 case ":$PATH:" in
@@ -309,7 +341,8 @@ esac
 say "The window opens and the terminal is handed straight back to you."
 say
 say "Other commands:"
-say "    claude-dashboard --foreground         stay attached and watch the output"
-say "    claude-dashboard --check              report the webview backend"
-say "    claude-dashboard --headless --browser run without a native window"
+say "    agentboard --foreground         stay attached and watch the output"
+say "    agentboard --check              report the webview backend"
+say "    agentboard --headless --browser run without a native window"
+say "    agentboard --detect-providers   detect AI tools again"
 say "    $0 --uninstall   remove it again"

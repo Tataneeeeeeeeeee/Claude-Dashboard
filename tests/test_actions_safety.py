@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from claude_dashboard.actions import (
+from agentboard.actions import (
     PROTECTED_NAMES,
     SafetyError,
     validate_transcript_path,
@@ -35,7 +35,7 @@ def tree(tmp_path, monkeypatch):
     outside = tmp_path / "precious.txt"
     outside.write_text("do not touch", encoding="utf-8")
 
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(home))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(home))
     return {
         "home": home,
         "root": home / "projects",
@@ -186,6 +186,6 @@ def test_an_empty_or_nonsense_path_is_refused(tree):
 
 
 def test_a_missing_projects_directory_is_reported_clearly(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(tmp_path / "nothing"))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(tmp_path / "nothing"))
     with pytest.raises(SafetyError, match="unreadable"):
         validate_transcript_path(tmp_path / "x.jsonl")

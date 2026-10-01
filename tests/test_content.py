@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from claude_dashboard import content
-from claude_dashboard.actions import SafetyError
-from claude_dashboard.content import (
+from agentboard import content
+from agentboard.actions import SafetyError
+from agentboard.content import (
     backup_projects,
     find_claude_md,
     list_assets,
@@ -49,7 +49,7 @@ def tree(tmp_path, monkeypatch):
     project.mkdir()
     (project / "CLAUDE.md").write_text("# Project rules\n", encoding="utf-8")
 
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(home))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(home))
     return {"home": home, "project": project, "tmp": tmp_path}
 
 
@@ -70,7 +70,7 @@ def test_a_project_that_no_longer_exists_is_skipped(tree):
 
 
 def test_no_instruction_files_is_an_empty_list_not_an_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(tmp_path / "empty"))
     assert find_claude_md([]) == []
 
 
@@ -190,7 +190,7 @@ def test_quoted_frontmatter_values_are_unquoted(tree):
 
 
 def test_missing_asset_directories_produce_an_empty_result(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(tmp_path / "nothing"))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(tmp_path / "nothing"))
     result = list_assets()
     assert result["assets"] == []
     assert result["counts"] == {}
@@ -307,6 +307,6 @@ def test_backup_leaves_no_partial_file_behind(tree):
 
 
 def test_backup_without_a_projects_directory_is_refused(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_DASHBOARD_CLAUDE_HOME", str(tmp_path / "nothing"))
+    monkeypatch.setenv("AGENTBOARD_CLAUDE_HOME", str(tmp_path / "nothing"))
     with pytest.raises(SafetyError, match="Nothing to back up"):
         backup_projects(tmp_path)

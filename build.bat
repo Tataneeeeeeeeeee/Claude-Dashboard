@@ -45,16 +45,16 @@ REM Regenerate the icons so the bundle never ships a stale one.
 "%VPY%" tools\make_icon.py >nul
 
 echo building
-"%VPY%" -m PyInstaller claude-dashboard.spec --noconfirm --log-level WARN
+"%VPY%" -m PyInstaller agentboard.spec --noconfirm --log-level WARN
 if errorlevel 1 goto :failed
 
-if not exist "dist\ClaudeCodeDashboard.exe" (
-  echo error: the build produced no dist\ClaudeCodeDashboard.exe
+if not exist "dist\Agentboard.exe" (
+  echo error: the build produced no dist\Agentboard.exe
   goto :failed
 )
 
 echo.
-echo built dist\ClaudeCodeDashboard.exe
+echo built dist\Agentboard.exe
 echo Double-click it to run. WebView2 ships with Windows 10 and 11; if the
 echo window does not appear, install the Microsoft Edge WebView2 Runtime.
 echo.

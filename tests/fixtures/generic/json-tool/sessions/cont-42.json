@@ -1,0 +1,27 @@
+{
+  "sessionId": "cont-42",
+  "title": "Explain the router",
+  "workspaceDirectory": "/home/tester/demo",
+  "history": [
+    {
+      "message": {
+        "role": "user",
+        "content": "explain router.py"
+      },
+      "contextItems": []
+    },
+    {
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "It maps URLs to handlers."
+          }
+        ]
+      },
+      "promptLogs": []
+    },
+    "garbage"
+  ]
+}

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from claude_dashboard.parser import (
+from agentboard.parser import (
     api_message_key,
     block_list,
     is_human_turn,
@@ -176,7 +176,7 @@ def test_scan_session_on_missing_file_returns_empty_meta(tmp_path):
 
 
 def test_session_meta_round_trips_through_the_cache(fixtures):
-    from claude_dashboard.parser import SessionMeta
+    from agentboard.parser import SessionMeta
 
     original = scan_session(fixtures / "basic.jsonl")
     restored = SessionMeta.from_dict(original.to_dict())

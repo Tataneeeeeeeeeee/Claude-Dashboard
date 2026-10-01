@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import vm from 'node:vm';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(join(here, '..', '..', 'claude_dashboard', 'web', 'markdown.js'), 'utf8');
+const source = readFileSync(join(here, '..', '..', 'agentboard', 'web', 'markdown.js'), 'utf8');
 const sandbox = { window: {} };
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox);

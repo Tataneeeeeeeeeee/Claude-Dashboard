@@ -6,7 +6,7 @@ Run it with the project's virtualenv:
     .venv/bin/python check_backend.py
 
 It prints a short report and exits non-zero if anything fails.  Nothing is
-written to ``~/.claude``.
+written to any AI tool's data.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from claude_dashboard.server import BackgroundServer  # noqa: E402
+from agentboard.server import BackgroundServer  # noqa: E402
 
 
 def main() -> int:
@@ -49,6 +49,9 @@ def main() -> int:
             ("/api/search?q=def%20main", lambda b: "hits" in b),
             ("/api/usage?granularity=week", lambda b: "kpis" in b),
             ("/api/usage/csv", lambda b: isinstance(b, str) and b.startswith("session_id")),
+            ("/api/usage/compare", lambda b: "providers" in b and "timeseries" in b),
+            ("/api/providers", lambda b: any(p["id"] == "claude" for p in b["providers"])),
+            ("/api/distinct", lambda b: "models" in b and "projects" in b),
             ("/api/claude-config", lambda b: "settings_path" in b),
             ("/api/config", lambda b: "pricing" in b),
             ("/api/index/status", lambda b: "percent" in b),

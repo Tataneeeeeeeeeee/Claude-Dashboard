@@ -1,0 +1,1 @@
+{"sessionId": "ok-1", "projectHash": "0000aaaa", "summary": "Explain the build", "messages": [{"id": "a", "timestamp": "2026-09-23T09:10:00Z", "type": "user", "content": [{"text": "explain the build"}]}, {"id": "b", "timestamp": "2026-09-23T09:10:05Z", "type": "gemini", "content": "It uses make.", "tokens": {"input": 100, "output": 20, "cached": 0}}]}

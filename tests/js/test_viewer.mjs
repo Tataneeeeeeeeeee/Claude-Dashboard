@@ -11,7 +11,7 @@ import vm from 'node:vm';
 import { makeDom } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const web = join(here, '..', '..', 'claude_dashboard', 'web');
+const web = join(here, '..', '..', 'agentboard', 'web');
 
 /** Load viewer.js against a fresh stub DOM. */
 function load() {
