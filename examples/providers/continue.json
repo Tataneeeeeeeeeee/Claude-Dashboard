@@ -1,0 +1,22 @@
+{
+  "id": "continue",
+  "name": "Continue",
+  "monogram": "Co",
+  "color": "#7c3aed",
+  "description": "Continue IDE extension sessions in ~/.continue/sessions (example spec).",
+  "binary": [],
+  "home": "~/.continue",
+  "glob": "sessions/*.json",
+  "format": "json",
+  "messages_path": "history",
+  "session": {
+    "id": "sessionId",
+    "title": "title",
+    "cwd": "workspaceDirectory"
+  },
+  "fields": {
+    "role": "message.role",
+    "text": "message.content"
+  },
+  "instruction_files": []
+}

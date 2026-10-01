@@ -75,6 +75,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "resume_command": "claude --resume {session_id}",
     },
     "editor_command": "code",        # used for "open in VS Code"
+    # Per-provider settings. An empty path means the tool's default
+    # location; an empty resume_command means the tool's own default.
+    # `pricing` rows override that provider's built-in and global prices.
+    "providers": {
+        "claude": {"enabled": True, "path": "", "resume_command": "", "pricing": {}},
+        "codex": {"enabled": True, "path": "", "resume_command": "", "pricing": {}},
+        "gemini": {"enabled": True, "path": "", "resume_command": "", "pricing": {}},
+    },
+    # Providers described by a spec rather than code; see README.md.
+    "custom_providers": [],
+    # How often the UI checks for new activity, in seconds.
+    "refresh_interval_seconds": 5,
     "search": {
         "max_results": 400,
         "context_chars": 160,

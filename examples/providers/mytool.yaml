@@ -1,0 +1,31 @@
+# A JSONL-logging tool, described in YAML (needs `pip install pyyaml`).
+# Copy to ~/.agentboard/providers/ and adjust the paths to your tool.
+id: mytool
+name: My Tool
+monogram: MT
+color: "#e11d48"
+binary: mytool
+home: ~/.mytool
+glob: logs/**/*.jsonl
+format: jsonl
+session:
+  id: session_id
+  cwd: cwd
+fields:
+  role: role
+  text: content
+  timestamp: ts
+  model: model
+  message_id: response_id
+  tool_name: tool.name
+  tool_input: tool.args
+  tool_output: tool.result
+  input_tokens: usage.prompt_tokens
+  output_tokens: usage.completion_tokens
+  cache_read_tokens: usage.cached_tokens
+  cost: cost_usd
+input_includes_cached: true
+pricing:
+  my-model-large: {input: 2.0, output: 8.0, cache_read: 0.5}
+  default: {input: 1.0, output: 4.0, cache_read: 0.25}
+resume_command: mytool --resume {session_id}
