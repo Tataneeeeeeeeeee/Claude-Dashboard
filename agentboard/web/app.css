@@ -1320,3 +1320,65 @@ button.danger:hover {
 .onboarding-list { list-style: none; padding: 0; margin: 16px 0 20px; display: grid; gap: 10px; }
 .onboarding-list li { display: flex; align-items: flex-start; gap: 4px; }
 .onboarding-list code { font-size: 11px; }
+
+/* The provider switcher: a radio group of chips in the title bar. */
+.provider-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-sunken);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.provider-switch::-webkit-scrollbar { display: none; }
+.provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.provider-chip.on {
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  font-weight: 550;
+}
+.provider-chip-count { font-size: 10.5px; color: var(--text-faint); }
+.provider-chip.missing .provider-badge {
+  background: transparent;
+  color: var(--text-faint);
+  box-shadow: inset 0 0 0 1px var(--text-faint);
+  text-shadow: none;
+}
+.provider-chip.missing .provider-chip-name { color: var(--text-faint); }
+
+.session-item .row-top .provider-badge { margin-top: 1px; }
+
+/* A capability the provider lacks is stated, not hidden. */
+.capability-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  cursor: help;
+}
+
+.provider-state { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.provider-state h2 { margin-top: 10px; }
+.provider-state-actions { display: flex; gap: 7px; margin-top: 10px; }
+
+@media (max-width: 1250px) {
+  .provider-chip-name { display: none; }
+  .provider-chip[data-provider="all"] .provider-chip-name { display: inline; }
+  .search-wrap { width: 220px; }
+}
+
+/* No fades while the first theme is being applied. */
+html.booting *, html.booting *::before, html.booting *::after { transition: none !important; }

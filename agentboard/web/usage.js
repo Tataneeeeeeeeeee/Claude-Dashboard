@@ -78,6 +78,7 @@
     state: {
       granularity: 'day',
       project: '',
+      provider: '',
       metric: 'tokens',
       tables: false,
       data: null,
@@ -88,14 +89,23 @@
     async render(host, options = {}) {
       this.host = host;
       if (options.projects) this.projects = options.projects;
+      if (options.providers) this.providers = options.providers;
+      if (options.provider !== undefined) this.state.provider = options.provider;
       // The server inlines the aggregate for a `?view=usage` deep link.
       const preloaded = window.__PRELOAD__ && window.__PRELOAD__.usage;
-      if (preloaded && !this.state.data) {
+      if (preloaded && !this.state.data && !this.state.provider) {
         this.state.data = preloaded;
         this.paint();
         return;
       }
       await this.refresh();
+    },
+
+    /** Scope the dashboard to one provider ('' for all) and refetch. */
+    setProvider(provider) {
+      this.state.provider = provider || '';
+      this.state.project = '';
+      this.refresh();
     },
 
     /** Fetch a fresh aggregate and repaint. */
@@ -109,6 +119,7 @@
       try {
         const params = new URLSearchParams({ granularity: this.state.granularity });
         if (this.state.project) params.set('project', this.state.project);
+        if (this.state.provider) params.set('provider', this.state.provider);
         params.set('include_home_size', 'true');
         const response = await fetch(`/api/usage?${params}`, {
           headers: { Accept: 'application/json' },
@@ -177,8 +188,9 @@
         onchange: (event) => { this.state.project = event.target.value; this.refresh(); },
       }, [el('option', { value: '', text: 'All projects' })]);
       for (const entry of this.projects || []) {
-        const option = el('option', { value: entry.dir_name, text: entry.name });
-        if (entry.dir_name === this.state.project) option.setAttribute('selected', 'selected');
+        const value = entry.key || entry.dir_name;
+        const option = el('option', { value, text: entry.name });
+        if (value === this.state.project) option.setAttribute('selected', 'selected');
         project.append(option);
       }
 

@@ -200,3 +200,13 @@ def test_resume_commands_come_from_each_provider(client):
 def test_rescan_reports_providers(client):
     body = client.post("/api/providers/rescan").json()
     assert {"claude", "codex", "gemini"} <= set(_ids(body))
+
+
+def test_filter_values_follow_the_provider(client):
+    codex = client.get("/api/distinct?provider=codex").json()
+    assert "gpt-5-codex" in codex["models"]
+    assert not any(m.startswith("claude") for m in codex["models"])
+    assert "apply_patch" in codex["tools"]
+    assert all("codex" in p["providers"] for p in codex["projects"])
+    everything = client.get("/api/distinct").json()
+    assert {"gpt-5-codex", "claude-opus-5"} <= set(everything["models"])

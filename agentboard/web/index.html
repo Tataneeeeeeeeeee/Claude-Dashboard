@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" class="booting">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -51,6 +51,10 @@
       <button data-view="usage">Usage</button>
       <button data-view="config">Settings</button>
     </nav>
+
+    <!-- Scopes every view to one provider, or shows them all. -->
+    <div class="provider-switch" id="provider-switch" role="radiogroup"
+         aria-label="Provider"></div>
 
     <span class="spacer"></span>
 

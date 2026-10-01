@@ -231,6 +231,7 @@ const dashboard = {
     native: false,
     selection: new Set(),
     onlyFavorites: false,
+    provider: 'all',
   },
 
   /* ---------------------------------------------------------- lifecycle */
@@ -241,6 +242,12 @@ const dashboard = {
     const initialTheme = this.readStoredTheme();
     this.themePinned = new URLSearchParams(window.location.search).has('theme');
     this.applyTheme(initialTheme);
+    this.state.provider = this.readStoredProvider();
+    // Transitions stay off until the real theme is painted, so a light
+    // theme does not fade in from the dark default.
+    requestAnimationFrame(() => requestAnimationFrame(
+      () => document.documentElement.classList.remove('booting'),
+    ));
     this.setStatus('busy', 'Loading');
 
     // The server inlines the first screen of data into the page, so render
@@ -250,11 +257,16 @@ const dashboard = {
       try {
         this.state.bootstrap = preload.bootstrap;
         if (!this.themePinned) this.applyTheme(preload.bootstrap.config.theme || 'system');
+        this.renderProviderSwitch();
         this.fillFilters(preload.bootstrap);
         this.renderCorpus(preload.bootstrap.stats);
         if (preload.bootstrap.stats.session_count && preload.sessions) {
-          this.state.sessions = preload.sessions.sessions;
-          this.renderSessions(preload.sessions);
+          if (this.state.provider === 'all') {
+            this.state.sessions = preload.sessions.sessions;
+            this.renderSessions(preload.sessions);
+          } else {
+            this.loadSessions();
+          }
           this.setStatus('ok', 'Ready');
           const view = new URLSearchParams(window.location.search).get('view')
             || preload.bootstrap.config.last_view;
@@ -283,6 +295,7 @@ const dashboard = {
       // The stored config only wins when the user has not pinned a theme
       // locally, either via ?theme= or a previous toggle.
       if (!this.themePinned) this.applyTheme(boot.config.theme || 'system');
+      this.renderProviderSwitch();
       this.fillFilters(boot);
       this.renderCorpus(boot.stats);
 
@@ -504,6 +517,14 @@ const dashboard = {
       case 'c':
         if (this.viewer) { event.preventDefault(); this.viewer.collapseAll(); }
         break;
+      case 'p':
+        event.preventDefault();
+        this.cycleProvider(1);
+        break;
+      case 'P':
+        event.preventDefault();
+        this.cycleProvider(-1);
+        break;
       case '1': this.setView('sessions'); break;
       case '2': this.setView('usage'); break;
       case '3': this.setView('config'); break;
@@ -519,6 +540,160 @@ const dashboard = {
   provider(id) {
     const list = (this.state.bootstrap && this.state.bootstrap.providers) || [];
     return list.find((p) => p.id === id) || null;
+  },
+
+  /** Providers offered by the switcher: every enabled one, detected first. */
+  switchableProviders() {
+    const list = ((this.state.bootstrap && this.state.bootstrap.providers) || [])
+      .filter((p) => p.enabled);
+    const rank = (p) => (p.stats.sessions ? 0 : p.detection.detected ? 1 : 2);
+    return list.slice().sort((a, b) => rank(a) - rank(b));
+  },
+
+  /** The provider filter value for API calls: empty means every provider. */
+  providerParam() {
+    return this.state.provider === 'all' ? '' : this.state.provider;
+  },
+
+  /** The last provider chosen, if it still exists. */
+  readStoredProvider() {
+    const forced = new URLSearchParams(window.location.search).get('provider');
+    if (forced) return forced;
+    try {
+      return localStorage.getItem('provider') || 'all';
+    } catch {
+      return 'all';
+    }
+  },
+
+  /**
+   * Draw the provider switcher: "All" plus one chip per enabled provider,
+   * each with its badge and session count. It is a radio group, so the
+   * arrow keys move between chips and Tab leaves it.
+   */
+  renderProviderSwitch() {
+    const host = $('#provider-switch');
+    const providers = this.switchableProviders();
+    if (this.state.provider !== 'all' && !providers.some((p) => p.id === this.state.provider)) {
+      this.state.provider = 'all';
+    }
+    const total = providers.reduce((sum, p) => sum + (p.stats.sessions || 0), 0);
+    const options = [{ id: 'all', name: 'All providers', short: 'All', count: total }]
+      .concat(providers.map((p) => ({
+        id: p.id, name: p.name, short: p.name, count: p.stats.sessions || 0, provider: p,
+      })));
+
+    const chips = options.map((option) => {
+      const on = option.id === this.state.provider;
+      const missing = option.provider && !option.provider.detection.detected;
+      const chip = el('button.provider-chip', {
+        role: 'radio',
+        'aria-checked': on ? 'true' : 'false',
+        tabindex: on ? '0' : '-1',
+        class: [on ? 'on' : '', missing ? 'missing' : ''].join(' ').trim(),
+        title: option.provider
+          ? `${option.name}: ${option.count} session${option.count === 1 ? '' : 's'}`
+            + (missing ? ' \u00b7 not detected on this machine' : '')
+          : `Every provider: ${option.count} sessions`,
+        dataset: { provider: option.id },
+        onclick: () => this.setProvider(option.id),
+        onkeydown: (event) => {
+          const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+          if (!step) return;
+          event.preventDefault();
+          event.stopPropagation();
+          this.cycleProvider(step, true);
+        },
+      }, [
+        option.provider ? providerBadge(option.provider) : null,
+        el('span.provider-chip-name', { text: option.short }),
+        el('span.provider-chip-count.num', { text: String(option.count) }),
+      ]);
+      return chip;
+    });
+    host.replaceChildren(...chips);
+    host.hidden = providers.length < 1;
+  },
+
+  /** Move the selection to the next or previous provider. */
+  cycleProvider(step, focus = false) {
+    const ids = ['all'].concat(this.switchableProviders().map((p) => p.id));
+    const index = ids.indexOf(this.state.provider);
+    const next = ids[(index + step + ids.length) % ids.length];
+    this.setProvider(next);
+    if (focus) {
+      const chip = $(`#provider-switch [data-provider="${next}"]`);
+      if (chip) chip.focus();
+    }
+  },
+
+  /**
+   * Scope every view to one provider (or "all"): the session list, its
+   * filters, search and the usage dashboard follow.
+   */
+  async setProvider(id) {
+    if (id === this.state.provider) return;
+    this.state.provider = id;
+    try { localStorage.setItem('provider', id); } catch { /* per-run only */ }
+    this.renderProviderSwitch();
+    this.state.selection.clear();
+    await this.refreshFilters();
+    const term = $('#search').value;
+    if (this.state.searchMode && term) await this.runSearch(term);
+    else await this.loadSessions();
+    this.showProviderState();
+    if (this.usageReady && window.usageView) window.usageView.setProvider(this.providerParam());
+  },
+
+  /** Reload the dropdown values for the current provider. */
+  async refreshFilters() {
+    try {
+      const values = await api.get('/api/distinct', { provider: this.providerParam() });
+      this.fillFilters({ ...this.state.bootstrap, distinct: values, projects: values.projects });
+    } catch {
+      /* the previous values stay usable */
+    }
+  },
+
+  /**
+   * When one provider is selected and it has nothing to show, say why:
+   * not detected (with where it looked) or simply no sessions yet.
+   */
+  showProviderState() {
+    const provider = this.provider(this.state.provider);
+    if (!provider || provider.stats.sessions || this.state.loadedId) return;
+    const found = provider.detection;
+    $('#session-content').replaceChildren(el('div.placeholder.provider-state', {}, [
+      providerBadge(provider, 'lg'),
+      el('h2', { text: found.detected ? `No ${provider.name} sessions yet` : `${provider.name} not detected` }),
+      el('p', { text: found.reason }),
+      el('p', {}, ['Sessions are read from ', el('code', { text: found.root }), '.']),
+      el('div.provider-state-actions', {}, [
+        el('button.bordered', {
+          text: 'Change the path in Settings',
+          onclick: () => {
+            this.setView('config');
+            if (window.configView && window.configView.openTab) window.configView.openTab('providers');
+          },
+        }),
+        el('button.bordered', { text: 'Detect again', onclick: () => this.rescanProviders() }),
+      ]),
+    ]));
+  },
+
+  /** Ask the backend to detect tools again, then reload everything. */
+  async rescanProviders() {
+    this.setStatus('busy', 'Detecting tools');
+    try {
+      await api.send('POST', '/api/providers/rescan');
+      await this.reload();
+      this.showProviderState();
+      toast('Providers detected again', '', 'ok');
+    } catch (error) {
+      toast('Could not rescan', error.message, 'error');
+    } finally {
+      this.setStatus('ok', 'Ready');
+    }
   },
 
   /* --------------------------------------------------------------- view */
@@ -553,7 +728,11 @@ const dashboard = {
     const projects = this.state.bootstrap ? this.state.bootstrap.projects : [];
     if (!this.usageReady) {
       this.usageReady = true;
-      window.usageView.render(host, { projects });
+      window.usageView.render(host, {
+        projects,
+        provider: this.providerParam(),
+        providers: (this.state.bootstrap && this.state.bootstrap.providers) || [],
+      });
     }
   },
 
@@ -619,7 +798,7 @@ const dashboard = {
     for (const project of boot.projects) {
       const label = `${project.name} (${project.session_count})`;
       projects.append(el('option', {
-        value: project.dir_name,
+        value: project.key || project.dir_name,
         text: project.exists ? label : label + ' · folder gone',
       }));
     }
@@ -649,6 +828,7 @@ const dashboard = {
     }));
     try {
       const data = await api.get('/api/sessions', {
+        provider: this.providerParam(),
         project: $('#filter-project').value,
         model: $('#filter-model').value,
         tool: $('#filter-tool').value,
@@ -724,6 +904,7 @@ const dashboard = {
       },
     }, [
       el('div.row-top', {}, [
+        providerBadge(this.provider(session.provider)),
         el('div.title', { text: session.title || session.session_id }),
         el('button', {
           class: session.is_favorite ? 'star on' : 'star',
@@ -1278,32 +1459,37 @@ const dashboard = {
    * Resume is disabled, with an explanation, when the folder has gone.
    */
   async sessionActions(sessionId) {
-    const host = el('div', { style: 'display:flex;gap:5px;flex-wrap:wrap' });
+    const host = el('div', { style: 'display:flex;gap:5px;flex-wrap:wrap;align-items:center' });
+    const session = (this.state.conversation && this.state.conversation.meta)
+      || this.state.sessions.find((s) => s.session_id === sessionId) || {};
+    const provider = this.provider(session.provider) || { capabilities: {}, name: 'This provider' };
+    const caps = provider.capabilities || {};
     let info = null;
-    try {
-      info = await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/resume-command`);
-    } catch {
-      return host;
+    if (provider.can_resume) {
+      try {
+        info = await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/resume-command`);
+      } catch {
+        info = null;
+      }
+    }
+    if (!info) {
+      // No resume for this provider: the folder buttons still work, and
+      // an explicit note says why Resume is missing.
+      const exists = Boolean(session.project_exists);
+      info = {
+        project_exists: exists, cwd: session.project_path, command: null,
+        editor_available: true,
+        reason: exists ? '' : `The project folder ${session.project_path || '(unknown)'} no longer exists.`,
+      };
     }
 
-    const resume = el('button.bordered', {
-      text: 'Resume',
-      title: info.project_exists
-        ? `Open a terminal in ${info.cwd} and run ${info.command}`
-        : info.reason,
-      onclick: () => this.resumeSession(sessionId),
-    });
-    if (!info.project_exists) {
-      resume.setAttribute('disabled', 'disabled');
-      resume.title = info.reason;
+    if (info.command) host.append(...this.resumeButtons(sessionId, info));
+    else {
+      host.append(el('span.capability-note', {
+        text: 'No resume',
+        title: `${provider.name} cannot reopen a session by id. Set a resume command for it in Settings \u2192 Providers.`,
+      }));
     }
-    host.append(resume);
-
-    host.append(el('button.bordered', {
-      text: 'Copy command',
-      title: 'Copy the resume command to the clipboard',
-      onclick: () => this.copyResumeCommand(sessionId),
-    }));
 
     const folder = el('button.bordered', {
       text: 'Folder',
@@ -1329,12 +1515,40 @@ const dashboard = {
       onclick: () => this.editAnnotations(sessionId),
     }));
 
-    host.append(el('button.danger', {
-      text: 'Delete',
-      title: 'Move this transcript to the dashboard trash',
-      onclick: () => this.deleteSessions([sessionId]),
-    }));
+    if (caps.delete) {
+      host.append(el('button.danger', {
+        text: 'Delete',
+        title: 'Move this transcript to the dashboard trash',
+        onclick: () => this.deleteSessions([sessionId]),
+      }));
+    } else {
+      host.append(el('span.capability-note', {
+        text: 'Read-only',
+        title: `Deleting ${provider.name} sessions is not supported; its files are never modified.`,
+      }));
+    }
     return host;
+  },
+
+  /** The Resume and Copy command buttons, for providers that can resume. */
+  resumeButtons(sessionId, info) {
+    const resume = el('button.bordered', {
+      text: 'Resume',
+      title: info.project_exists
+        ? `Open a terminal in ${info.cwd} and run ${info.command}`
+        : info.reason,
+      onclick: () => this.resumeSession(sessionId),
+    });
+    if (!info.project_exists) {
+      resume.setAttribute('disabled', 'disabled');
+      resume.title = info.reason;
+    }
+    const copy = el('button.bordered', {
+      text: 'Copy command',
+      title: 'Copy the resume command to the clipboard',
+      onclick: () => this.copyResumeCommand(sessionId),
+    });
+    return [resume, copy];
   },
 
   /* -------------------------------------------------------------- resume */
@@ -1398,7 +1612,9 @@ const dashboard = {
     const boot = await api.get('/api/bootstrap').catch(() => null);
     if (boot) {
       this.state.bootstrap = boot;
-      this.fillFilters(boot);
+      this.renderProviderSwitch();
+      if (this.state.provider === 'all') this.fillFilters(boot);
+      else await this.refreshFilters();
       this.renderCorpus(boot.stats);
     }
     await this.loadSessions();
@@ -1567,6 +1783,7 @@ const dashboard = {
       const result = await api.get('/api/search', {
         q: term,
         project: $('#filter-project').value,
+        provider: this.providerParam(),
       });
       if (result.error) {
         toast('Search problem', result.error, 'warn');
@@ -1678,6 +1895,7 @@ const dashboard = {
         const boot = await api.get('/api/bootstrap').catch(() => null);
         if (boot) {
           this.state.bootstrap = boot;
+          this.renderProviderSwitch();
           this.fillFilters(boot);
           this.renderCorpus(boot.stats);
         }
@@ -1744,7 +1962,7 @@ const dashboard = {
       ['j / k', 'Next / previous session'],
       ['Enter', 'Open the highlighted session'],
       ['1 2 3', 'Sessions / Usage / Settings'],
-      ['p', 'Switch to the next provider'],
+      ['p', 'Next provider (Shift+p: previous)'],
       ['e', 'Expand every block in the conversation'],
       ['c', 'Collapse them again'],
       ['r', 'Resume the session in a terminal'],

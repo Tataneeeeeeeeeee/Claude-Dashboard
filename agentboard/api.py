@@ -312,6 +312,20 @@ def create_app() -> FastAPI:
             "events_seen": sum(w.events_seen for w in watchers),
         }
 
+    @app.get("/api/distinct")
+    def distinct(provider: Optional[str] = None) -> Dict[str, Any]:
+        """Filter-dropdown values (models, tools, branches) for one provider
+        or all of them, plus the projects that provider worked in."""
+        _index_ready()
+        index = get_index()
+        values = index.distinct(provider)
+        wanted = None if not provider or provider == "all" else set(provider.split(","))
+        values["projects"] = [
+            p.to_dict() for p in index.projects
+            if wanted is None or wanted & set(p.providers)
+        ]
+        return values
+
     @app.get("/api/index/status")
     def index_status() -> Dict[str, Any]:
         """Progress of the current or most recent indexing run."""
