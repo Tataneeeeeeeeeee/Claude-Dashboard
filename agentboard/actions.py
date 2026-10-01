@@ -42,6 +42,7 @@ __all__ = [
     "purge_trash",
     "delete_batch_permanently",
     "resume_command_string",
+    "provider_resume_command",
     "build_terminal_commands",
     "launch_terminal",
     "open_folder",
@@ -188,6 +189,7 @@ def move_to_trash(
     paths: Sequence[Path | str],
     metadata: Dict[str, Dict[str, Any]] | None = None,
     note: str = "",
+    projects_dir: Path | None = None,
 ) -> TrashBatch:
     """Move transcripts into a new timestamped trash batch.
 
@@ -204,7 +206,7 @@ def move_to_trash(
     validated: List[Path] = []
     seen: set[Path] = set()
     for candidate in paths:
-        resolved = validate_transcript_path(candidate)
+        resolved = validate_transcript_path(candidate, projects_dir)
         if resolved in seen:
             continue
         seen.add(resolved)
@@ -324,7 +326,11 @@ def _stored_file(batch: Path, item: Dict[str, Any]) -> Path:
     return relocated if stored.name and relocated.is_file() else stored
 
 
-def restore_batch(batch_id: str, session_ids: Iterable[str] | None = None) -> Dict[str, Any]:
+def restore_batch(
+    batch_id: str,
+    session_ids: Iterable[str] | None = None,
+    projects_dir: Path | None = None,
+) -> Dict[str, Any]:
     """Move files from a trash batch back to where they came from.
 
     The destination is validated the same way a deletion is, so a tampered
@@ -341,7 +347,7 @@ def restore_batch(batch_id: str, session_ids: Iterable[str] | None = None) -> Di
         raise SafetyError(f"Trash manifest is unreadable: {exc}") from exc
 
     wanted = set(session_ids) if session_ids is not None else None
-    root = claude_projects_dir().resolve()
+    root = (projects_dir or claude_projects_dir()).resolve()
     restored: List[str] = []
     skipped: List[Dict[str, str]] = []
     remaining: List[Dict[str, Any]] = []
@@ -455,6 +461,19 @@ def resume_command_string(session_id: str, config: Dict[str, Any] | None = None)
     return str(template).replace("{session_id}", session_id)
 
 
+def provider_resume_command(adapter: Any, session_id: str, config: Dict[str, Any] | None = None) -> str:
+    """The command that reopens *session_id* in its own tool.
+
+    The id is validated before it is substituted into anything, and a
+    provider that cannot resume by id is refused with a readable reason.
+    """
+    session_id = _safe_session_id(session_id)
+    command = adapter.resume_command(session_id, config or load_config())
+    if not command:
+        raise SafetyError(f"{adapter.name} cannot reopen a session by id")
+    return command
+
+
 def _quote_for_cmd(text: str) -> str:
     """Wrap a value for Windows ``cmd.exe``, which does not use POSIX rules."""
     return '"' + text.replace('"', '""') + '"'
@@ -465,6 +484,7 @@ def build_terminal_commands(
     session_id: str,
     config: Dict[str, Any] | None = None,
     platform: str | None = None,
+    command: str | None = None,
 ) -> List[List[str]]:
     """Candidate argv lists for opening a terminal, in preference order.
 
@@ -479,7 +499,8 @@ def build_terminal_commands(
     settings = (config or load_config()).get("terminal", {})
     system = platform or sys.platform
     key = "windows" if system.startswith("win") else "darwin" if system == "darwin" else "linux"
-    command = resume_command_string(session_id, config)
+    if command is None:
+        command = resume_command_string(session_id, config)
 
     custom = settings.get(key)
     if isinstance(custom, list) and custom:
@@ -545,12 +566,13 @@ def launch_terminal(
     cwd: str,
     session_id: str,
     config: Dict[str, Any] | None = None,
+    command: str | None = None,
 ) -> Dict[str, Any]:
     """Open a terminal in *cwd* running the resume command.
 
     Each candidate is tried in turn until one starts.  The project directory
     must still exist: resuming into a directory that has been deleted would
-    start Claude Code somewhere unexpected.
+    start the tool somewhere unexpected.
     """
     session_id = _safe_session_id(session_id)
     directory = Path(cwd) if cwd else None
@@ -560,7 +582,9 @@ def launch_terminal(
         )
 
     attempts: List[Dict[str, str]] = []
-    for argv in build_terminal_commands(str(directory), session_id, config):
+    if command is None:
+        command = resume_command_string(session_id, config)
+    for argv in build_terminal_commands(str(directory), session_id, config, command=command):
         program = argv[0]
         if shutil.which(program) is None and not Path(program).is_file():
             attempts.append({"program": program, "error": "not found on PATH"})
@@ -578,7 +602,7 @@ def launch_terminal(
                 "launched": True,
                 "program": program,
                 "argv": argv,
-                "command": resume_command_string(session_id, config),
+                "command": command,
                 "attempts": attempts,
             }
         except OSError as exc:

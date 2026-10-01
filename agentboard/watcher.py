@@ -1,6 +1,6 @@
-"""Live updates: watch ``~/.claude/projects`` and refresh the index.
+"""Live updates: watch each provider's history and refresh the index.
 
-Claude Code appends to a transcript continuously while a session is open,
+AI tools append to a transcript continuously while a session is open,
 so a naive watcher would re-scan a 30 MB file on every write.  Events are
 therefore coalesced: a path that changes is queued, and a worker re-scans
 it only once the writes have paused for ``settle_seconds``.
@@ -14,21 +14,23 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Dict, Optional, Set
+from typing import Callable, Dict, Optional, Sequence, Set
 
 __all__ = ["FileWatcher", "start_watcher"]
 
 
 class FileWatcher:
-    """Coalescing watcher over the projects directory."""
+    """Coalescing watcher over one provider's history directory."""
 
     def __init__(
         self,
         root: Path,
         on_change: Callable[[Set[str]], None],
         settle_seconds: float = 1.5,
+        suffixes: Sequence[str] = (".jsonl",),
     ) -> None:
         self.root = Path(root)
+        self.suffixes = tuple(suffixes)
         self.on_change = on_change
         self.settle_seconds = settle_seconds
         self._pending: Dict[str, float] = {}
@@ -42,7 +44,7 @@ class FileWatcher:
 
     def note(self, path: str) -> None:
         """Record that *path* changed; the worker debounces the rest."""
-        if not path.endswith(".jsonl"):
+        if not path.endswith(self.suffixes):
             return
         with self._lock:
             self.events_seen += 1
@@ -100,7 +102,7 @@ class FileWatcher:
             return False
 
         self._worker = threading.Thread(
-            target=self._drain, name="agentboard-watch", daemon=True
+            target=self._drain, name=f"agentboard-watch-{self.root.name}", daemon=True
         )
         self._worker.start()
         return True
@@ -120,7 +122,11 @@ class FileWatcher:
             self._worker = None
 
 
-def start_watcher(root: Path, on_change: Callable[[Set[str]], None]) -> Optional[FileWatcher]:
+def start_watcher(
+    root: Path,
+    on_change: Callable[[Set[str]], None],
+    suffixes: Sequence[str] = (".jsonl",),
+) -> Optional[FileWatcher]:
     """Create and start a watcher, or return ``None`` if unavailable."""
-    watcher = FileWatcher(root, on_change)
+    watcher = FileWatcher(root, on_change, suffixes=suffixes)
     return watcher if watcher.start() else None

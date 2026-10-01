@@ -1,10 +1,10 @@
-"""Session index, on-disk cache and full-text search.
+"""Session index, on-disk cache and full-text search, across every provider.
 
-The index is a dictionary of :class:`~agentboard.parser.SessionMeta`
-keyed by absolute transcript path, rebuilt by streaming every ``.jsonl`` under
-``~/.claude/projects``.  Results are cached in
-``~/.agentboard/cache.json`` keyed by ``(path, mtime, size)``, so a
-restart re-scans only what changed.  On the reference install a cold scan of
+The index is a dictionary of :class:`~agentboard.model.SessionMeta` keyed
+by absolute session path, rebuilt by asking each enabled provider adapter
+for its session files and scanning them.  Results are cached in
+``~/.agentboard/cache.json`` keyed by ``(path, mtime, size)`` and provider,
+so a restart re-scans only what changed.  On the reference install a cold scan of
 189 MB takes about half a second; a warm start is instant.
 
 Search deliberately avoids building a term index, which would have to hold a
@@ -28,21 +28,28 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .parser import (
-    SessionMeta,
-    block_list,
-    iter_entries,
-    parse_timestamp,
-    scan_session,
-)
-from .paths import claude_projects_dir, cache_path, decode_project_dir
+from .model import ProjectInfo, SessionMeta, parse_timestamp
+from .paths import cache_path, decode_project_dir
+from .providers.base import ProviderAdapter
 
-__all__ = ["IndexProgress", "SessionIndex", "get_index"]
+__all__ = ["IndexProgress", "SessionIndex", "get_index", "project_key"]
 
 #: Bump when :meth:`SessionMeta.to_dict` changes shape, to invalidate caches.
-CACHE_VERSION = 3
+CACHE_VERSION = 4
+
+
+def project_key(meta: SessionMeta) -> str:
+    """The project a session belongs to, across providers.
+
+    Sessions recorded in the same working directory are one project whichever
+    tool produced them.  Without a known path, the provider's own directory
+    name is used, prefixed so two providers can never collide.
+    """
+    if meta.project_path:
+        return meta.project_path
+    return f"{meta.provider}:{meta.project_dir}"
 
 
 @dataclass
@@ -75,43 +82,27 @@ class IndexProgress:
         }
 
 
-@dataclass
-class ProjectInfo:
-    """A project directory under ``~/.claude/projects`` and its sessions."""
-
-    dir_name: str
-    path: str
-    exists: bool
-    decoded_guess: bool
-    session_count: int = 0
-    message_count: int = 0
-    total_tokens: int = 0
-    file_size: int = 0
-    last_activity: str | None = None
-    has_claude_md: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialise for the sidebar."""
-        return {
-            "dir_name": self.dir_name,
-            "path": self.path,
-            "name": Path(self.path).name or self.path,
-            "exists": self.exists,
-            "decoded_guess": self.decoded_guess,
-            "session_count": self.session_count,
-            "message_count": self.message_count,
-            "total_tokens": self.total_tokens,
-            "file_size": self.file_size,
-            "last_activity": self.last_activity,
-            "has_claude_md": self.has_claude_md,
-        }
-
-
 class SessionIndex:
     """In-memory index over all transcripts, with a disk-backed cache."""
 
-    def __init__(self, projects_dir: Path | None = None) -> None:
-        self._projects_dir = projects_dir or claude_projects_dir()
+    def __init__(
+        self,
+        projects_dir: Path | None = None,
+        adapters: Sequence[ProviderAdapter] | None = None,
+    ) -> None:
+        """Index the given adapters, or follow the provider registry.
+
+        *projects_dir* is the historical form: a Claude Code projects
+        directory, indexed on its own.
+        """
+        if adapters is not None:
+            self._fixed: List[ProviderAdapter] | None = list(adapters)
+        elif projects_dir is not None:
+            from .providers.claude import ClaudeAdapter
+
+            self._fixed = [ClaudeAdapter(projects_dir=projects_dir)]
+        else:
+            self._fixed = None
         self._lock = threading.RLock()
         self._sessions: Dict[str, SessionMeta] = {}
         self._projects: Dict[str, ProjectInfo] = {}
@@ -158,33 +149,48 @@ class SessionIndex:
 
     # ------------------------------------------------------------------ build
 
-    def transcript_paths(self) -> List[Path]:
-        """Every ``.jsonl`` directly inside a project directory, sorted.
+    @property
+    def adapters(self) -> List[ProviderAdapter]:
+        """The providers being indexed: fixed at construction, or every
+        enabled provider in the registry."""
+        if self._fixed is not None:
+            return list(self._fixed)
+        from .providers.registry import get_registry
 
-        Symlinks are skipped, both files and directories.  The deletion
-        guard refuses them anyway, so indexing one would put a session in
-        the list that can never be deleted, and a "select all" would fail
-        as a whole because deletion is all-or-nothing.
-        """
-        root = self._projects_dir
-        if not root.is_dir():
-            return []
-        found: List[Path] = []
-        try:
-            for child in sorted(root.iterdir()):
-                if child.is_symlink() or not child.is_dir():
-                    continue
-                try:
-                    for entry in sorted(child.iterdir()):
-                        if entry.is_symlink():
-                            continue
-                        if entry.is_file() and entry.suffix == ".jsonl":
-                            found.append(entry)
-                except OSError:
-                    continue
-        except OSError:
-            return []
+        return get_registry().enabled()
+
+    def set_adapters(self, adapters: Sequence[ProviderAdapter] | None) -> None:
+        """Pin the indexed providers, or pass ``None`` to follow the registry."""
+        with self._lock:
+            self._fixed = list(adapters) if adapters is not None else None
+
+    def adapter(self, provider_id: str) -> ProviderAdapter | None:
+        """The indexed adapter with this id."""
+        for adapter in self.adapters:
+            if adapter.id == provider_id:
+                return adapter
+        return None
+
+    def adapter_for_path(self, path: Path | str) -> ProviderAdapter | None:
+        """The adapter whose history contains *path*."""
+        for adapter in self.adapters:
+            if adapter.owns(path):
+                return adapter
+        return None
+
+    def _files(self) -> List[Tuple[ProviderAdapter, Path]]:
+        """Every session file of every indexed provider."""
+        found: List[Tuple[ProviderAdapter, Path]] = []
+        for adapter in self.adapters:
+            try:
+                found.extend((adapter, path) for path in adapter.session_files())
+            except OSError:
+                continue
         return found
+
+    def transcript_paths(self) -> List[Path]:
+        """Every session file, across providers."""
+        return [path for _adapter, path in self._files()]
 
     def build(self, force: bool = False, on_progress: Callable[[IndexProgress], None] | None = None) -> None:
         """(Re)build the index, reusing cache entries whose files are unchanged.
@@ -193,18 +199,18 @@ class SessionIndex:
         """
         with self._lock:
             self._load_cache()
-            files = self.transcript_paths()
+            files = self._files()
             self.progress = IndexProgress(
                 running=True, total=len(files), started_at=time.time()
             )
             sessions: Dict[str, SessionMeta] = {}
             try:
-                for path in files:
+                for adapter, path in files:
                     key = str(path)
                     self.progress.current = path.name
                     cached = None if force else self._cache.get(key)
                     meta = None
-                    if cached:
+                    if cached and cached.get("provider", "claude") == adapter.id:
                         try:
                             stat = path.stat()
                             same = (
@@ -220,7 +226,7 @@ class SessionIndex:
                             except (TypeError, ValueError):
                                 meta = None
                     if meta is None:
-                        meta = scan_session(path)
+                        meta = self._scan(adapter, path)
                         self.progress.scanned += 1
                     sessions[key] = meta
                     self.progress.done += 1
@@ -236,8 +242,15 @@ class SessionIndex:
             self.last_built = time.time()
             self._save_cache()
 
+    @staticmethod
+    def _scan(adapter: ProviderAdapter, path: Path) -> SessionMeta:
+        """Scan one file, stamping the provider so no adapter can forget."""
+        meta = adapter.scan(path)
+        meta.provider = adapter.id
+        return meta
+
     def refresh_path(self, path: Path | str) -> SessionMeta | None:
-        """Re-scan a single transcript after a filesystem event."""
+        """Re-scan a single session file after a filesystem event."""
         file_path = Path(path)
         key = str(file_path)
         with self._lock:
@@ -246,35 +259,60 @@ class SessionIndex:
                 self._cache.pop(key, None)
                 self._rebuild_projects()
                 return None
-            if file_path.suffix != ".jsonl":
+            adapter = self.adapter_for_path(file_path)
+            if adapter is None:
                 return None
-            meta = scan_session(file_path)
+            meta = self._scan(adapter, file_path)
             self._sessions[key] = meta
             self._cache[key] = meta.to_dict()
             self._rebuild_projects()
             return meta
 
     def _rebuild_projects(self) -> None:
-        """Recompute per-project rollups from the current session map."""
+        """Recompute per-project rollups from the current session map.
+
+        Sessions whose format does not record a working directory get one
+        chance to recover it from the paths every other session recorded.
+        """
+        known = {m.project_path for m in self._sessions.values() if m.project_path}
+        by_id = {adapter.id: adapter for adapter in self.adapters}
+        for meta in self._sessions.values():
+            if not meta.project_path and meta.provider in by_id:
+                guess = by_id[meta.provider].guess_project_path(meta, known)
+                if guess:
+                    meta.project_path = guess
+
+        instruction_names: List[str] = []
+        for adapter in by_id.values():
+            for name in adapter.instruction_file_names:
+                if name not in instruction_names:
+                    instruction_names.append(name)
+
         projects: Dict[str, ProjectInfo] = {}
         for meta in self._sessions.values():
-            dir_name = meta.project_dir
-            info = projects.get(dir_name)
+            key = project_key(meta)
+            info = projects.get(key)
             if info is None:
                 if meta.project_path:
                     path, guess = meta.project_path, False
+                elif meta.provider == "claude":
+                    path, guess = decode_project_dir(meta.project_dir), True
                 else:
-                    path, guess = decode_project_dir(dir_name), True
+                    path, guess = "", True
                 exists = Path(path).is_dir() if path else False
+                found = [n for n in instruction_names if exists and (Path(path) / n).is_file()]
                 info = ProjectInfo(
-                    dir_name=dir_name,
-                    path=path,
+                    dir_name=meta.project_dir,
+                    key=key,
+                    path=path or meta.project_dir,
                     exists=exists,
                     decoded_guess=guess,
-                    has_claude_md=exists and (Path(path) / "CLAUDE.md").is_file(),
+                    has_claude_md="CLAUDE.md" in found,
+                    instruction_files=found,
                 )
-                projects[dir_name] = info
+                projects[key] = info
             info.session_count += 1
+            info.providers[meta.provider] = info.providers.get(meta.provider, 0) + 1
             info.message_count += meta.message_count
             info.total_tokens += meta.total_tokens
             info.file_size += meta.file_size
@@ -324,6 +362,20 @@ class SessionIndex:
         """Corpus-level counters for the header and the empty state."""
         with self._lock:
             metas = list(self._sessions.values())
+        adapters = self.adapters
+        claude = next((a for a in adapters if a.id == "claude"), None)
+        primary = claude or (adapters[0] if adapters else None)
+        per_provider: Dict[str, Dict[str, Any]] = {
+            a.id: {"sessions": 0, "messages": 0, "total_tokens": 0, "root": str(a.root)}
+            for a in adapters
+        }
+        for meta in metas:
+            row = per_provider.setdefault(
+                meta.provider, {"sessions": 0, "messages": 0, "total_tokens": 0, "root": ""}
+            )
+            row["sessions"] += 1
+            row["messages"] += meta.message_count
+            row["total_tokens"] += meta.total_tokens
         return {
             "session_count": len(metas),
             "project_count": len(self._projects),
@@ -333,8 +385,9 @@ class SessionIndex:
             "file_size": sum(m.file_size for m in metas),
             "corrupt_lines": sum(m.corrupt_lines for m in metas),
             "last_built": self.last_built,
-            "projects_dir": str(self._projects_dir),
-            "projects_dir_exists": self._projects_dir.is_dir(),
+            "projects_dir": str(primary.root) if primary else "",
+            "projects_dir_exists": bool(primary and primary.root.is_dir()),
+            "providers": per_provider,
         }
 
     # ----------------------------------------------------------------- filter
@@ -342,6 +395,7 @@ class SessionIndex:
     def filter(
         self,
         project: str | None = None,
+        provider: str | None = None,
         model: str | None = None,
         tool: str | None = None,
         since: str | None = None,
@@ -364,8 +418,11 @@ class SessionIndex:
         favorite_set = set(favorites or ())
         tag_map = tags or {}
         result: List[SessionMeta] = []
+        providers = _provider_set(provider)
         for meta in self.sessions:
-            if project and meta.project_dir != project and meta.project_path != project:
+            if providers is not None and meta.provider not in providers:
+                continue
+            if project and not _in_project(meta, project):
                 continue
             if model and model not in meta.models:
                 continue
@@ -416,12 +473,15 @@ class SessionIndex:
             return sorted(metas, key=lambda m: m.title.lower())
         return sorted(metas, key=lambda m: m.last_timestamp or "", reverse=True)
 
-    def distinct(self) -> Dict[str, List[str]]:
+    def distinct(self, provider: str | None = None) -> Dict[str, List[str]]:
         """Values available to the filter dropdowns."""
         models: Dict[str, int] = {}
         tools: Dict[str, int] = {}
         branches: Dict[str, int] = {}
+        providers = _provider_set(provider)
         for meta in self.sessions:
+            if providers is not None and meta.provider not in providers:
+                continue
             for name in meta.models:
                 models[name] = models.get(name, 0) + 1
             for name, count in meta.tools.items():
@@ -444,8 +504,9 @@ class SessionIndex:
         project: str | None = None,
         regex: bool = False,
         case_sensitive: bool = False,
+        provider: str | None = None,
     ) -> Dict[str, Any]:
-        """Full-text search across every transcript.
+        """Full-text search across every session of every provider.
 
         Returns per-message hits carrying enough identity (``session_id``,
         ``line``, ``uuid``) for the viewer to scroll straight to the match.
@@ -471,8 +532,15 @@ class SessionIndex:
         scanned = matched = 0
         truncated = False
 
+        providers = _provider_set(provider)
+        adapters = {adapter.id: adapter for adapter in self.adapters}
         for meta in self.sessions:
-            if project and meta.project_dir != project and meta.project_path != project:
+            if providers is not None and meta.provider not in providers:
+                continue
+            if project and not _in_project(meta, project):
+                continue
+            adapter = adapters.get(meta.provider)
+            if adapter is None or not adapter.capabilities.search:
                 continue
             if truncated:
                 break
@@ -488,43 +556,14 @@ class SessionIndex:
                 continue
             matched += 1
             del blob
-            # Stage 2: only now pay for JSON parsing.
-            for line_no, entry, error in iter_entries(path):
-                if error is not None:
-                    continue
-                kind = entry.get("type")
-                if kind not in {"user", "assistant"}:
-                    continue
-                text = self._searchable_text(entry)
-                if not text:
-                    continue
-                match = pattern.search(text)
-                if match is None:
-                    continue
-                start = max(0, match.start() - context_chars // 2)
-                end = min(len(text), match.end() + context_chars // 2)
-                hits.append(
-                    {
-                        "session_id": meta.session_id,
-                        "path": meta.path,
-                        "project_dir": meta.project_dir,
-                        "project_path": meta.project_path,
-                        "title": meta.title,
-                        "line": line_no,
-                        "uuid": entry.get("uuid"),
-                        "role": kind,
-                        "timestamp": entry.get("timestamp"),
-                        "snippet": ("…" if start else "")
-                        + " ".join(text[start:end].split())
-                        + ("…" if end < len(text) else ""),
-                        "match_start": match.start() - start + (1 if start else 0),
-                        "match_length": match.end() - match.start(),
-                    }
+            # Stage 2: only now pay for parsing.
+            try:
+                truncated = self._collect_hits(
+                    meta, adapter.search_entries(path), pattern, context_chars,
+                    hits, sessions_hit, limit,
                 )
-                sessions_hit.add(meta.session_id)
-                if len(hits) >= limit:
-                    truncated = True
-                    break
+            except (OSError, ValueError):
+                continue
 
         return {
             "term": term,
@@ -537,38 +576,46 @@ class SessionIndex:
         }
 
     @staticmethod
-    def _searchable_text(entry: Dict[str, Any]) -> str:
-        """Flatten one entry into the text the search should look at.
-
-        Covers prose, thinking, tool inputs and tool outputs, which is what
-        makes "find the session where I ran that migration" work.
-        """
-        message = entry.get("message")
-        parts: List[str] = []
-        for block in block_list(message):
-            btype = block.get("type")
-            if btype == "text" and isinstance(block.get("text"), str):
-                parts.append(block["text"])
-            elif btype == "thinking" and isinstance(block.get("thinking"), str):
-                parts.append(block["thinking"])
-            elif btype == "tool_use":
-                name = block.get("name")
-                if isinstance(name, str):
-                    parts.append(name)
-                payload = block.get("input")
-                if isinstance(payload, dict):
-                    for value in payload.values():
-                        if isinstance(value, str):
-                            parts.append(value)
-            elif btype == "tool_result":
-                content = block.get("content")
-                if isinstance(content, str):
-                    parts.append(content)
-                elif isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and isinstance(item.get("text"), str):
-                            parts.append(item["text"])
-        return "\n".join(parts)
+    def _collect_hits(
+        meta: SessionMeta,
+        entries: Iterable[Any],
+        pattern: "re.Pattern[str]",
+        context_chars: int,
+        hits: List[Dict[str, Any]],
+        sessions_hit: set,
+        limit: int,
+    ) -> bool:
+        """Append the hits from one session; ``True`` once *limit* is reached."""
+        for entry in entries:
+            text = entry.text
+            match = pattern.search(text)
+            if match is None:
+                continue
+            start = max(0, match.start() - context_chars // 2)
+            end = min(len(text), match.end() + context_chars // 2)
+            hits.append(
+                {
+                    "session_id": meta.session_id,
+                    "provider": meta.provider,
+                    "path": meta.path,
+                    "project_dir": meta.project_dir,
+                    "project_path": meta.project_path,
+                    "title": meta.title,
+                    "line": entry.line,
+                    "uuid": entry.uuid,
+                    "role": entry.role,
+                    "timestamp": entry.timestamp,
+                    "snippet": ("…" if start else "")
+                    + " ".join(text[start:end].split())
+                    + ("…" if end < len(text) else ""),
+                    "match_start": match.start() - start + (1 if start else 0),
+                    "match_length": match.end() - match.start(),
+                }
+            )
+            sessions_hit.add(meta.session_id)
+            if len(hits) >= limit:
+                return True
+        return False
 
     # ------------------------------------------------------------ maintenance
 
@@ -590,10 +637,30 @@ class SessionIndex:
         """Sessions whose project directory no longer exists on disk."""
         out = []
         for meta in self.sessions:
-            info = self._projects.get(meta.project_dir)
-            if info is not None and not info.exists:
+            info = self._projects.get(project_key(meta))
+            if info is not None and not info.exists and meta.project_path:
                 out.append(meta)
         return out
+
+
+def _provider_set(provider: str | Iterable[str] | None) -> set[str] | None:
+    """Normalise a provider filter: ``None``/``"all"`` means every provider,
+    and a comma-separated string selects several."""
+    if provider is None:
+        return None
+    if isinstance(provider, str):
+        values = [p.strip() for p in provider.split(",") if p.strip()]
+    else:
+        values = [str(p) for p in provider]
+    if not values or "all" in values:
+        return None
+    return set(values)
+
+
+def _in_project(meta: SessionMeta, project: str) -> bool:
+    """Whether *meta* belongs to the project named by a directory name,
+    a path or a project key."""
+    return project in (meta.project_dir, meta.project_path, project_key(meta))
 
 
 _INSTANCE: Optional[SessionIndex] = None

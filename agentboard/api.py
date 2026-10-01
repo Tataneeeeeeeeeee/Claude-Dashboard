@@ -25,10 +25,9 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__
+from . import PRODUCT_NAME, __version__
 from .config import load_config, save_config, update_config
 from .indexer import get_index
-from .parser import parse_conversation
 from .paths import (
     app_home,
     claude_home,
@@ -38,8 +37,7 @@ from .paths import (
     trash_dir,
 )
 from . import actions, content, exporters
-from .usage import aggregate, session_cost, stats_csv
-from .watcher import start_watcher
+from .usage import aggregate, pricing_resolver, session_cost, stats_csv
 
 __all__ = ["create_app"]
 
@@ -51,8 +49,9 @@ def _index_ready() -> None:
     get_index().ensure_built()
 
 
-def _session_payload(meta, pricing: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-    """Session metadata plus the app-side annotations kept out of ``~/.claude``."""
+def _session_payload(meta, pricing: Any, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Session metadata plus the app-side annotations kept out of each
+    tool's own data."""
     data = meta.to_dict()
     data["estimated_cost"] = round(session_cost(meta, pricing), 6)
     data["file_size_human"] = human_size(meta.file_size)
@@ -61,6 +60,28 @@ def _session_payload(meta, pricing: Dict[str, Any], config: Dict[str, Any]) -> D
     data["note"] = config.get("notes", {}).get(meta.session_id, "")
     data["project_exists"] = bool(meta.project_path) and Path(meta.project_path).is_dir()
     return data
+
+
+def _adapter_of(meta):
+    """The adapter that produced *meta*, or a 409 if it is switched off."""
+    adapter = get_index().adapter(meta.provider)
+    if adapter is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"The {meta.provider!r} provider is disabled or no longer installed",
+        )
+    return adapter
+
+
+def _parse_session(meta, **options) -> Dict[str, Any]:
+    """Parse one session with its own adapter, mapping failures to HTTP."""
+    path = Path(meta.path)
+    if not path.is_file():
+        raise HTTPException(status_code=410, detail=f"Transcript no longer on disk: {path}")
+    try:
+        return _adapter_of(meta).parse(path, **options)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read {path}: {exc}") from exc
 
 
 def _dir_size(path: Path) -> int:
@@ -135,9 +156,9 @@ def _sessions_payload(
         max_messages=max_messages,
         sort="recent",
     )
-    metas = index.sort(metas, sort, config["pricing"])
+    pricing = pricing_resolver(config)
+    metas = index.sort(metas, sort, pricing)
     window = metas[offset: offset + limit]
-    pricing = config["pricing"]
     return {
         "total": len(metas),
         "offset": offset,
@@ -168,20 +189,25 @@ async def _lifespan(app: FastAPI):
             app.state.revision += 1
             app.state.last_change = datetime.now(timezone.utc).isoformat()
 
-        try:
-            app.state.watcher = start_watcher(claude_projects_dir(), refreshed)
-        except Exception:  # pragma: no cover - defensive
-            app.state.watcher = None
+        watchers = []
+        for adapter in get_index().adapters:
+            if not adapter.capabilities.live:
+                continue
+            try:
+                watchers.extend(adapter.watch(refreshed))
+            except Exception:  # pragma: no cover - defensive
+                continue
+        app.state.watchers = watchers
+        app.state.watcher = watchers[0] if watchers else None
     yield
-    watcher = getattr(app.state, "watcher", None)
-    if watcher is not None:
+    for watcher in getattr(app.state, "watchers", []) or []:
         watcher.stop()
 
 
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
     app = FastAPI(
-        title="Agentboard",
+        title=PRODUCT_NAME,
         version=__version__,
         docs_url=None,
         redoc_url=None,
@@ -192,6 +218,7 @@ def create_app() -> FastAPI:
     app.state.shutdown_event = shutdown_event
     app.state.purge_result = None
     app.state.watcher = None
+    app.state.watchers = []
     # Bumped whenever the watcher notices a transcript change, so the UI
     # can poll one small endpoint instead of re-fetching the whole index.
     app.state.revision = 0
@@ -212,12 +239,12 @@ def create_app() -> FastAPI:
     @app.get("/api/changes")
     def changes() -> Dict[str, Any]:
         """Revision counter the UI polls to notice live transcript changes."""
-        watcher = app.state.watcher
+        watchers = app.state.watchers or []
         return {
             "revision": app.state.revision,
             "last_change": app.state.last_change,
-            "watching": watcher is not None,
-            "events_seen": watcher.events_seen if watcher is not None else 0,
+            "watching": bool(watchers),
+            "events_seen": sum(w.events_seen for w in watchers),
         }
 
     @app.get("/api/index/status")
@@ -269,7 +296,7 @@ def create_app() -> FastAPI:
         if meta is None:
             raise HTTPException(status_code=404, detail=f"No session indexed with id {session_id!r}")
         config = load_config()
-        return _session_payload(meta, config["pricing"], config)
+        return _session_payload(meta, pricing_resolver(config), config)
 
     @app.get("/api/sessions/{session_id}/messages")
     def session_messages(
@@ -282,19 +309,13 @@ def create_app() -> FastAPI:
         meta = get_index().get(session_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"No session indexed with id {session_id!r}")
-        path = Path(meta.path)
-        if not path.is_file():
-            raise HTTPException(status_code=410, detail=f"Transcript no longer on disk: {path}")
-        try:
-            parsed = parse_conversation(
-                path,
-                tool_output_limit=tool_output_limit,
-                include_attachments=include_attachments,
-            )
-        except OSError as exc:
-            raise HTTPException(status_code=500, detail=f"Could not read {path}: {exc}") from exc
+        parsed = _parse_session(
+            meta,
+            tool_output_limit=tool_output_limit,
+            include_attachments=include_attachments,
+        )
         config = load_config()
-        parsed["meta"] = _session_payload(meta, config["pricing"], config)
+        parsed["meta"] = _session_payload(meta, pricing_resolver(config), config)
         return parsed
 
     @app.get("/api/sessions/{session_id}/raw")
@@ -340,20 +361,13 @@ def create_app() -> FastAPI:
         meta = get_index().get(session_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"No session indexed with id {session_id!r}")
-        path = Path(meta.path)
-        if not path.is_file():
-            raise HTTPException(status_code=410, detail=f"Transcript no longer on disk: {path}")
-        try:
-            parsed = parse_conversation(
-                path,
-                tool_output_limit=tool_output_limit,
-                include_attachments=include_attachments,
-            )
-        except OSError as exc:
-            raise HTTPException(status_code=500, detail=f"Could not read {path}: {exc}") from exc
-
+        parsed = _parse_session(
+            meta,
+            tool_output_limit=tool_output_limit,
+            include_attachments=include_attachments,
+        )
         config = load_config()
-        parsed["meta"] = _session_payload(meta, config["pricing"], config)
+        parsed["meta"] = _session_payload(meta, pricing_resolver(config), config)
 
         options = {
             "include_thinking": include_thinking,
@@ -423,7 +437,7 @@ def create_app() -> FastAPI:
         else:
             metas = index.orphaned()
             description = "sessions whose project folder no longer exists"
-        pricing = config["pricing"]
+        pricing = pricing_resolver(config)
         return {
             "rule": rule,
             "description": description,
@@ -450,11 +464,18 @@ def create_app() -> FastAPI:
         paths: List[str] = []
         metadata: Dict[str, Dict[str, Any]] = {}
         missing: List[str] = []
+        refused: List[str] = []
+        roots: Set[str] = set()
         for session_id in ids:
             meta = index.get(str(session_id))
             if meta is None:
                 missing.append(str(session_id))
                 continue
+            adapter = index.adapter(meta.provider)
+            if adapter is None or not adapter.capabilities.delete:
+                refused.append(f"{meta.session_id} ({meta.provider})")
+                continue
+            roots.add(str(adapter.root))
             paths.append(meta.path)
             metadata[meta.session_id] = {
                 "title": meta.title,
@@ -465,9 +486,20 @@ def create_app() -> FastAPI:
             raise HTTPException(
                 status_code=404, detail=f"Not in the index: {', '.join(missing)}"
             )
+        if refused:
+            raise HTTPException(
+                status_code=400,
+                detail="Deleting is not supported for these sessions' provider: "
+                + ", ".join(refused),
+            )
+        if len(roots) > 1:
+            raise HTTPException(status_code=400, detail="Delete one provider's sessions at a time")
 
         try:
-            batch = actions.move_to_trash(paths, metadata, note=str(payload.get("note", "")))
+            batch = actions.move_to_trash(
+                paths, metadata, note=str(payload.get("note", "")),
+                projects_dir=Path(roots.pop()) if roots else None,
+            )
         except actions.SafetyError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -510,10 +542,12 @@ def create_app() -> FastAPI:
         """Put files from one batch back where they came from."""
         batch_id = str(payload.get("batch_id", ""))
         session_ids = payload.get("session_ids")
+        claude = get_index().adapter("claude")
         try:
             result = actions.restore_batch(
                 batch_id,
                 session_ids if isinstance(session_ids, list) else None,
+                projects_dir=claude.root if claude is not None else None,
             )
         except actions.SafetyError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -546,7 +580,7 @@ def create_app() -> FastAPI:
         config = load_config()
         exists = bool(meta.project_path) and Path(meta.project_path).is_dir()
         try:
-            command = actions.resume_command_string(meta.session_id, config)
+            command = actions.provider_resume_command(_adapter_of(meta), meta.session_id, config)
         except actions.SafetyError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
@@ -567,8 +601,10 @@ def create_app() -> FastAPI:
         meta = get_index().get(session_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"No session indexed with id {session_id!r}")
+        config = load_config()
         try:
-            return actions.launch_terminal(meta.project_path, meta.session_id, load_config())
+            command = actions.provider_resume_command(_adapter_of(meta), meta.session_id, config)
+            return actions.launch_terminal(meta.project_path, meta.session_id, config, command=command)
         except actions.SafetyError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -605,7 +641,7 @@ def create_app() -> FastAPI:
         config = load_config()
         metas = index.filter(project=project, since=since, until=until)
         home_size = _dir_size(claude_home()) if include_home_size else None
-        return aggregate(metas, granularity, config["pricing"], home_size)
+        return aggregate(metas, granularity, pricing_resolver(config), home_size)
 
     @app.get("/api/usage/csv", response_class=PlainTextResponse)
     def usage_csv(project: Optional[str] = None) -> str:
@@ -613,7 +649,7 @@ def create_app() -> FastAPI:
         _index_ready()
         config = load_config()
         metas = get_index().filter(project=project)
-        return stats_csv(metas, config["pricing"])
+        return stats_csv(metas, pricing_resolver(config))
 
     # ----------------------------------------------------------- config
 
@@ -864,15 +900,15 @@ def create_app() -> FastAPI:
                     # round trip.
                     config = load_config()
                     payload["usage"] = aggregate(
-                        get_index().filter(), "day", config["pricing"], _dir_size(claude_home())
+                        get_index().filter(), "day", pricing_resolver(config), _dir_size(claude_home())
                     )
                 if open:
                     meta = get_index().get(open)
                     if meta is not None and Path(meta.path).is_file():
-                        conversation = parse_conversation(Path(meta.path))
+                        conversation = _parse_session(meta)
                         config = load_config()
                         conversation["meta"] = _session_payload(
-                            meta, config["pricing"], config
+                            meta, pricing_resolver(config), config
                         )
                         payload["conversation"] = conversation
                 # A literal `</script>` inside the JSON would close the tag.

@@ -5,10 +5,14 @@ Everything here reads the pre-computed buckets on
 totals, tool counts and the day/hour heatmap - so a full dashboard refresh
 costs a dictionary walk rather than another pass over 183 MB of JSONL.
 
-Costs are **local estimates** from the user-editable pricing table, and they
-are a *lower bound*: Claude Code bills for work that never appears in a
-transcript, such as background Haiku calls and retried requests.  Where a
-session recorded its own ``totalCostUSD`` that figure is reported alongside.
+Costs are **local estimates** from the user-editable pricing tables, and
+they are a *lower bound*: tools bill for work that never appears in a
+transcript (Claude Code's background Haiku calls, retried requests).  Where a
+session recorded its own cost, that figure is reported alongside.
+
+Each provider prices its own models: wherever a ``pricing`` argument is
+accepted it may be one flat table applied to every session, a callable
+mapping a provider id to its table, or ``None`` for the configured tables.
 """
 
 from __future__ import annotations
@@ -17,12 +21,13 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, Union
 
 from .config import cost_of, load_config, normalise_model
 from .parser import SessionMeta
 
 __all__ = [
+    "pricing_resolver",
     "session_cost",
     "aggregate",
     "kpi_cards",
@@ -39,14 +44,45 @@ _TOKEN_KEYS = ("input", "output", "cache_write", "cache_read")
 _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
-def _pricing(pricing: Dict[str, Any] | None) -> Dict[str, Any]:
-    """Resolve the pricing table to use, defaulting to the user config."""
-    return pricing if pricing is not None else load_config()["pricing"]
+Resolver = Callable[[str], Dict[str, Any]]
+PricingSource = Union[Dict[str, Any], Resolver, None]
 
 
-def session_cost(meta: SessionMeta, pricing: Dict[str, Any] | None = None) -> float:
+def pricing_resolver(config: Dict[str, Any] | None = None) -> Resolver:
+    """Map a provider id to its effective price table, memoised.
+
+    Unknown providers (a session cached from an adapter since removed) fall
+    back to the global table.
+    """
+    settings = config if config is not None else load_config()
+    from .providers.registry import get_registry
+
+    registry = get_registry()
+    tables: Dict[str, Dict[str, Any]] = {}
+
+    def resolve(provider: str) -> Dict[str, Any]:
+        if provider not in tables:
+            adapter = registry.get(provider)
+            tables[provider] = (
+                adapter.pricing_table(settings) if adapter is not None else settings["pricing"]
+            )
+        return tables[provider]
+
+    return resolve
+
+
+def _pricing(pricing: PricingSource) -> Resolver:
+    """Turn any accepted ``pricing`` argument into a resolver."""
+    if pricing is None:
+        return pricing_resolver()
+    if callable(pricing):
+        return pricing
+    return lambda _provider: pricing
+
+
+def session_cost(meta: SessionMeta, pricing: PricingSource = None) -> float:
     """Estimated cost of one session, summed over its per-model totals."""
-    table = _pricing(pricing)
+    table = _pricing(pricing)(meta.provider)
     total = 0.0
     for model, row in meta.models.items():
         total += cost_of(
@@ -136,15 +172,15 @@ def _session_day_model_cost(meta: SessionMeta, table: Dict[str, Any]) -> Dict[st
 def timeseries(
     metas: Sequence[SessionMeta],
     granularity: str = "day",
-    pricing: Dict[str, Any] | None = None,
+    pricing: PricingSource = None,
 ) -> List[Dict[str, Any]]:
     """Tokens, cost, messages and sessions bucketed by day, week or month."""
-    table = _pricing(pricing)
+    resolve = _pricing(pricing)
     buckets: Dict[str, Dict[str, float]] = defaultdict(_empty_bucket)
     session_days: Dict[str, set] = defaultdict(set)
 
     for meta in metas:
-        day_costs = _session_day_model_cost(meta, table)
+        day_costs = _session_day_model_cost(meta, resolve(meta.provider))
         for day, row in meta.daily.items():
             key = _bucket_key(day, granularity)
             if key is None:
@@ -184,17 +220,19 @@ def _bucket_key(day: str, granularity: str) -> str | None:
 
 def by_project(
     metas: Sequence[SessionMeta],
-    pricing: Dict[str, Any] | None = None,
+    pricing: PricingSource = None,
 ) -> List[Dict[str, Any]]:
     """Per-project rollup of tokens, cost, messages and disk footprint."""
-    table = _pricing(pricing)
+    resolve = _pricing(pricing)
     buckets: Dict[str, Dict[str, Any]] = {}
     for meta in metas:
         key = meta.project_path or meta.project_dir
         bucket = buckets.setdefault(key, {**_empty_bucket(), "project": key,
-                                          "project_dir": meta.project_dir, "file_size": 0})
+                                          "project_dir": meta.project_dir, "file_size": 0,
+                                          "providers": {}})
+        bucket["providers"][meta.provider] = bucket["providers"].get(meta.provider, 0) + 1
         for model, row in meta.models.items():
-            _add_model_row(bucket, model, row, table)
+            _add_model_row(bucket, model, row, resolve(meta.provider))
         bucket["tool_calls"] += meta.tool_calls
         bucket["sessions"] += 1
         bucket["file_size"] += meta.file_size
@@ -206,16 +244,18 @@ def by_project(
 
 def by_model(
     metas: Sequence[SessionMeta],
-    pricing: Dict[str, Any] | None = None,
+    pricing: PricingSource = None,
 ) -> List[Dict[str, Any]]:
-    """Per-model rollup, keyed on the normalised model id."""
-    table = _pricing(pricing)
-    buckets: Dict[str, Dict[str, Any]] = {}
+    """Per-model rollup, keyed on the provider and the normalised model id."""
+    resolve = _pricing(pricing)
+    buckets: Dict[tuple, Dict[str, Any]] = {}
     for meta in metas:
         for model, row in meta.models.items():
-            key = normalise_model(model)
-            bucket = buckets.setdefault(key, {**_empty_bucket(), "model": key})
-            _add_model_row(bucket, model, row, table)
+            name = normalise_model(model)
+            bucket = buckets.setdefault(
+                (meta.provider, name), {**_empty_bucket(), "model": name, "provider": meta.provider}
+            )
+            _add_model_row(bucket, model, row, resolve(meta.provider))
             bucket["sessions"] += 1
     out = sorted(buckets.values(), key=lambda b: b["total_tokens"], reverse=True)
     for bucket in out:
@@ -281,7 +321,7 @@ def heatmap(metas: Sequence[SessionMeta]) -> Dict[str, Any]:
 
 def kpi_cards(
     metas: Sequence[SessionMeta],
-    pricing: Dict[str, Any] | None = None,
+    pricing: PricingSource = None,
     today: date | None = None,
 ) -> List[Dict[str, Any]]:
     """Totals for today, 7 days, 30 days and all time, each vs the period before.
@@ -289,13 +329,13 @@ def kpi_cards(
     ``change_percent`` is ``None`` when the previous period had no activity,
     which the UI renders as a dash rather than an infinite increase.
     """
-    table = _pricing(pricing)
+    resolve = _pricing(pricing)
     anchor = today or datetime.now(timezone.utc).date()
 
     daily: Dict[str, Dict[str, float]] = defaultdict(_empty_bucket)
     session_days: Dict[str, set] = defaultdict(set)
     for meta in metas:
-        day_costs = _session_day_model_cost(meta, table)
+        day_costs = _session_day_model_cost(meta, resolve(meta.provider))
         for day, row in meta.daily.items():
             bucket = daily[day]
             bucket["total_tokens"] += sum(row.get(k, 0) for k in _TOKEN_KEYS)
@@ -404,19 +444,19 @@ def disk_usage(metas: Sequence[SessionMeta], claude_home_size: int | None = None
 def aggregate(
     metas: Sequence[SessionMeta],
     granularity: str = "day",
-    pricing: Dict[str, Any] | None = None,
+    pricing: PricingSource = None,
     claude_home_size: int | None = None,
 ) -> Dict[str, Any]:
     """One call producing everything the dashboard view renders."""
-    table = _pricing(pricing)
+    resolve = _pricing(pricing)
     reported = sum(m.reported_cost_usd or 0.0 for m in metas)
-    estimated = sum(session_cost(m, table) for m in metas)
+    estimated = sum(session_cost(m, resolve) for m in metas)
     return {
-        "kpis": kpi_cards(metas, table),
-        "timeseries": timeseries(metas, granularity, table),
+        "kpis": kpi_cards(metas, resolve),
+        "timeseries": timeseries(metas, granularity, resolve),
         "granularity": granularity,
-        "projects": by_project(metas, table),
-        "models": by_model(metas, table),
+        "projects": by_project(metas, resolve),
+        "models": by_model(metas, resolve),
         "tools": tool_stats(metas),
         "heatmap": heatmap(metas),
         "disk": disk_usage(metas, claude_home_size),
@@ -432,14 +472,14 @@ def aggregate(
     }
 
 
-def stats_csv(metas: Sequence[SessionMeta], pricing: Dict[str, Any] | None = None) -> str:
+def stats_csv(metas: Sequence[SessionMeta], pricing: PricingSource = None) -> str:
     """Aggregated per-session statistics as CSV text, for the save dialog."""
-    table = _pricing(pricing)
+    resolve = _pricing(pricing)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(
         [
-            "session_id", "title", "project_path", "git_branch",
+            "session_id", "provider", "title", "project_path", "git_branch",
             "first_message", "last_message", "duration_seconds",
             "messages", "user_messages", "assistant_messages", "tool_calls",
             "input_tokens", "output_tokens", "cache_write_tokens", "cache_read_tokens",
@@ -451,6 +491,7 @@ def stats_csv(metas: Sequence[SessionMeta], pricing: Dict[str, Any] | None = Non
         writer.writerow(
             [
                 meta.session_id,
+                meta.provider,
                 meta.title,
                 meta.project_path,
                 meta.git_branch,
@@ -466,7 +507,7 @@ def stats_csv(metas: Sequence[SessionMeta], pricing: Dict[str, Any] | None = Non
                 meta.tokens.get("cache_write", 0),
                 meta.tokens.get("cache_read", 0),
                 meta.total_tokens,
-                round(session_cost(meta, table), 6),
+                round(session_cost(meta, resolve), 6),
                 "" if meta.reported_cost_usd is None else round(meta.reported_cost_usd, 6),
                 " ".join(sorted(meta.models)),
                 meta.file_size,
