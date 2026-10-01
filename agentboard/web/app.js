@@ -98,6 +98,29 @@ function when(iso) {
   return date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+/** Just the local time of day, "14:05". */
+function clock(iso) {
+  const date = new Date(iso);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/** The day bucket a timestamp falls in: "Today", "This week", "March"... */
+function dayGroup(iso) {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'Undated';
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return 'This week';
+  if (days < 14) return 'Last week';
+  const now = new Date();
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString([], { month: 'long' });
+  }
+  return date.toLocaleDateString([], { month: 'long', year: 'numeric' });
+}
+
 /** US dollars, with more precision for very small amounts. */
 function money(value) {
   const n = Number(value) || 0;
@@ -372,11 +395,27 @@ const dashboard = {
       button.addEventListener('click', () => this.setView(button.dataset.view));
     });
 
+    this.wirePopover('#btn-menu', '#app-menu');
+    this.wirePopover('#btn-filters', '#filter-panel');
+    // Menu items act, then get out of the way.
+    $$('#app-menu [role="menuitem"]').forEach((item) => {
+      if (item.id !== 'btn-theme') item.addEventListener('click', () => this.closePopovers());
+    });
+
     $('#btn-refresh').addEventListener('click', () => this.rebuild());
     $('#btn-trash').addEventListener('click', () => this.showTrash());
-    $('#btn-favorites').addEventListener('click', (event) => {
+    $('#btn-shortcuts').addEventListener('click', () => this.showShortcuts());
+    $('#btn-favorites').addEventListener('click', () => {
       this.state.onlyFavorites = !this.state.onlyFavorites;
-      event.currentTarget.classList.toggle('active', this.state.onlyFavorites);
+      this.paintFilterState();
+      this.loadSessions();
+    });
+    $('#btn-clear-filters').addEventListener('click', () => {
+      $('#sort').value = 'recent';
+      $('#filter-model').value = '';
+      $('#filter-tool').value = '';
+      this.state.onlyFavorites = false;
+      this.paintFilterState();
       this.loadSessions();
     });
     $('#btn-maintenance').addEventListener('click', () => this.showMaintenance());
@@ -401,7 +440,10 @@ const dashboard = {
     });
 
     ['#filter-project', '#filter-model', '#filter-tool', '#sort'].forEach((selector) => {
-      $(selector).addEventListener('change', () => this.loadSessions());
+      $(selector).addEventListener('change', () => {
+        this.paintFilterState();
+        this.loadSessions();
+      });
     });
 
     document.addEventListener('keydown', (event) => this.onKeydown(event));
@@ -437,6 +479,58 @@ const dashboard = {
   },
 
   /**
+   * Make `buttonSelector` open and close the panel at `panelSelector`.
+   * One popover is open at a time; a click outside or Escape closes it.
+   */
+  wirePopover(buttonSelector, panelSelector) {
+    const button = $(buttonSelector);
+    const panel = $(panelSelector);
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const opening = panel.hidden;
+      this.closePopovers();
+      if (!opening) return;
+      panel.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      this.openPopover = { button, panel };
+      const first = panel.querySelector('button, select, input');
+      if (first) first.focus();
+    });
+    document.addEventListener('mousedown', (event) => {
+      if (this.openPopover && this.openPopover.panel === panel
+          && !panel.contains(event.target) && !button.contains(event.target)) {
+        this.closePopovers();
+      }
+    });
+  },
+
+  /** Close whichever popover is open, optionally refocusing its button. */
+  closePopovers(refocus) {
+    if (!this.openPopover) return;
+    const { button, panel } = this.openPopover;
+    panel.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (refocus) button.focus();
+    this.openPopover = null;
+  },
+
+  /** Reflect the sort and filter choices on the filter button and panel. */
+  paintFilterState() {
+    const favorites = $('#btn-favorites');
+    favorites.classList.toggle('on', this.state.onlyFavorites);
+    favorites.setAttribute('aria-pressed', String(this.state.onlyFavorites));
+    const active = [
+      $('#sort').value !== 'recent',
+      $('#filter-model').value,
+      $('#filter-tool').value,
+      this.state.onlyFavorites,
+    ].filter(Boolean).length;
+    $('#filter-dot').hidden = !active;
+    $('#btn-filters').title = active
+      ? `Sort and filter (${active} active)` : 'Sort and filter';
+  },
+
+  /**
    * Global keyboard shortcuts.
    * Ignored while typing in a field, except for Escape.
    */
@@ -448,6 +542,7 @@ const dashboard = {
 
     if (event.key === 'Escape') {
       if ($('#modal-backdrop').classList.contains('visible')) closeModal();
+      else if (this.openPopover) this.closePopovers(true);
       return;
     }
     if (typing || event.ctrlKey || event.metaKey || event.altKey) {
@@ -875,6 +970,8 @@ const dashboard = {
     const dark = theme === 'dark'
       || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    const label = $('#theme-value');
+    if (label) label.textContent = theme.charAt(0).toUpperCase() + theme.slice(1);
     // Chart marks read CSS custom properties at build time, so a theme
     // change has to rebuild them rather than relying on cascade.
     if (this.usageReady && window.usageView && window.usageView.state.data) {
@@ -911,16 +1008,17 @@ const dashboard = {
     }
 
     const models = $('#filter-model');
-    models.replaceChildren(el('option', { value: '', text: 'Model' }));
+    models.replaceChildren(el('option', { value: '', text: 'Any model' }));
     for (const model of boot.distinct.models) {
       models.append(el('option', { value: model, text: model }));
     }
 
     const tools = $('#filter-tool');
-    tools.replaceChildren(el('option', { value: '', text: 'Tool' }));
+    tools.replaceChildren(el('option', { value: '', text: 'Any tool' }));
     for (const tool of boot.distinct.tools) {
       tools.append(el('option', { value: tool, text: tool }));
     }
+    this.paintFilterState();
   },
 
   /* ----------------------------------------------------------- sessions */
@@ -965,32 +1063,77 @@ const dashboard = {
       return;
     }
 
-    const rows = data.sessions.map((session, index) => this.sessionRow(session, index));
+    // Sorted by date, the list reads like a journal: grouped by day.
+    const byDate = ['recent', 'oldest'].includes($('#sort').value);
+    const rows = [];
+    let lastGroup = null;
+    data.sessions.forEach((session, index) => {
+      if (byDate) {
+        const group = dayGroup(session.last_timestamp);
+        if (group !== lastGroup) {
+          rows.push(el('div.list-group', { text: group, role: 'presentation' }));
+          lastGroup = group;
+        }
+      }
+      rows.push(this.sessionRow(session, index, byDate));
+    });
     list.replaceChildren(...rows);
     this.paintSelection();
+    this.renderWelcome();
   },
 
-  /** Build one session row. */
-  sessionRow(session, index) {
+  /** Fill the welcome screen with a few sessions to jump back into. */
+  renderWelcome() {
+    const host = $('#welcome-recent');
+    if (!host) return;
+    const hour = new Date().getHours();
+    $('#welcome-title').textContent = hour < 5 ? 'Up late?'
+      : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const recent = this.state.sessions.slice(0, 4);
+    host.replaceChildren(...(recent.length ? [el('div.welcome-label', { text: 'Pick up where you left off' })] : []),
+      ...recent.map((session) => el('button.welcome-item', {
+        type: 'button',
+        onclick: () => this.openSession(session),
+      }, [
+        providerBadge(this.provider(session.provider)),
+        el('span.welcome-item-title.truncate', { text: session.title || session.session_id }),
+        el('span.welcome-item-when', { text: when(session.last_timestamp) }),
+      ])));
+  },
+
+  /**
+   * Build one session row. Under a day heading, today's and yesterday's
+   * rows show only the time, since the heading already names the day.
+   */
+  sessionRow(session, index, grouped = false) {
     const projectName = (session.project_path || session.project_dir).split('/').filter(Boolean).pop()
       || session.project_dir;
 
-    const pills = [];
-    if (session.git_branch && session.git_branch !== 'HEAD') {
-      pills.push(el('span.pill', { text: session.git_branch }));
-    }
+    // Problems stay visible; everything else is one hover away.
+    const flags = [];
     if (!session.project_exists) {
-      pills.push(el('span.pill.warn', { text: 'folder gone', title: session.project_path }));
+      flags.push(el('span.flag.warn', { text: 'folder gone', title: session.project_path }));
     }
     if (session.corrupt_lines) {
-      pills.push(el('span.pill.error', {
+      flags.push(el('span.flag.error', {
         text: `${session.corrupt_lines} bad line${session.corrupt_lines === 1 ? '' : 's'}`,
       }));
     }
+    const details = [
+      session.preview,
+      [
+        `${session.message_count} messages`,
+        `${compact(session.total_tokens)} tokens`,
+        money(session.estimated_cost),
+        duration(session.duration_seconds),
+        bytes(session.file_size),
+      ].join(' · '),
+      session.git_branch && session.git_branch !== 'HEAD' ? `branch ${session.git_branch}` : null,
+    ].filter(Boolean).join('\n');
 
     const row = el('div.session-item', {
       dataset: { id: session.session_id, index: String(index) },
-      title: session.preview || session.title,
+      title: details,
       onclick: (event) => {
         // Ctrl/Cmd click toggles multi-selection instead of opening.
         if (event.ctrlKey || event.metaKey) {
@@ -1011,12 +1154,12 @@ const dashboard = {
       },
     }, [
       el('div.row-top', {}, [
-        providerBadge(this.provider(session.provider)),
         el('div.title', { text: session.title || session.session_id }),
         el('button', {
           class: session.is_favorite ? 'star on' : 'star',
           text: session.is_favorite ? '\u2605' : '\u2606',
           title: session.is_favorite ? 'Remove from favourites' : 'Add to favourites',
+          'aria-label': session.is_favorite ? 'Remove from favourites' : 'Add to favourites',
           onclick: (event) => {
             event.stopPropagation();
             this.toggleFavorite(session, event.currentTarget);
@@ -1024,21 +1167,21 @@ const dashboard = {
         }),
       ]),
       el('div.sub', {}, [
-        el('span.project.truncate', { text: projectName, title: session.project_path }),
-        el('span.faint', { text: when(session.last_timestamp) }),
+        providerBadge(this.provider(session.provider)),
+        el('span.project.truncate', { text: projectName }),
+        el('span.sub-sep', { text: '\u00b7', 'aria-hidden': 'true' }),
+        el('span.when', {
+          text: grouped && ['Today', 'Yesterday'].includes(dayGroup(session.last_timestamp))
+            ? clock(session.last_timestamp) : when(session.last_timestamp),
+        }),
+        session.note ? el('span.note-mark', { text: '\u270e', title: 'Has a note' }) : null,
       ]),
-      (session.tags || []).length
-        ? el('div.sub', {}, session.tags.map((tag) => el('span.tag', { text: tag })))
+      (session.tags || []).length || flags.length
+        ? el('div.sub.tags', {}, [
+            ...(session.tags || []).map((tag) => el('span.tag', { text: tag })),
+            ...flags,
+          ])
         : null,
-      session.note ? el('span.pill', { text: 'note' }) : null,
-      el('div.sub.stats', {}, [
-        el('span.num', { text: `${session.message_count} msg` }),
-        el('span.num', { text: compact(session.total_tokens) + ' tok' }),
-        el('span.num', { text: money(session.estimated_cost) }),
-        el('span.num', { text: duration(session.duration_seconds) }),
-        el('span.num', { text: bytes(session.file_size) }),
-      ]),
-      pills.length ? el('div.sub', {}, pills) : null,
     ]);
     return row;
   },
@@ -1921,10 +2064,10 @@ const dashboard = {
     const match = escapeHtml(hit.snippet.substr(hit.match_start, hit.match_length));
     const after = escapeHtml(hit.snippet.slice(hit.match_start + hit.match_length));
     const highlighted = match
-      ? `${before}<mark style="background:var(--accent-soft);color:var(--accent);border-radius:2px">${match}</mark>${after}`
+      ? `${before}<mark>${match}</mark>${after}`
       : escapeHtml(hit.snippet);
 
-    return el('div.session-item', {
+    return el('div.session-item.search-hit', {
       title: 'Open this session and scroll to the match',
       onclick: () => {
         const session = this.state.sessions.find((s) => s.session_id === hit.session_id)
@@ -1932,16 +2075,16 @@ const dashboard = {
         this.openSession(session, { line: hit.line, uuid: hit.uuid });
       },
     }, [
-      el('div.title', { text: hit.title, style: 'font-size:12px' }),
-      el('div', { html: highlighted, style: 'font-size:11.5px;color:var(--text-dim);line-height:1.5' }),
-      el('div.sub', {}, [
+      el('div.title', { text: hit.title }),
+      el('div.snippet', { html: highlighted }),
+      el('div.sub', { title: 'line ' + hit.line }, [
         providerBadge(this.provider(hit.provider)),
         el('span', {
           text: hit.role === 'user' ? 'you'
             : ((this.provider(hit.provider) || {}).assistant_label || hit.role || '').toLowerCase(),
         }),
-        el('span', { text: when(hit.timestamp) }),
-        el('span.faint', { text: 'line ' + hit.line }),
+        el('span.sub-sep', { text: '·', 'aria-hidden': 'true' }),
+        el('span.when', { text: when(hit.timestamp) }),
       ]),
     ]);
   },

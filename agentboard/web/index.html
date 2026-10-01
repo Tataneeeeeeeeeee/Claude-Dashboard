@@ -52,9 +52,6 @@
       <button data-view="config">Settings</button>
     </nav>
 
-    <!-- The agent picker: scopes every view to one agent, or shows all. -->
-    <div class="agent-picker" id="provider-switch"></div>
-
     <span class="spacer"></span>
 
     <div class="search-wrap">
@@ -69,8 +66,41 @@
       <kbd>/</kbd>
     </div>
 
-    <button id="btn-refresh" class="bordered" title="Rebuild the index (F5)">Refresh</button>
-    <button id="btn-theme" class="bordered" title="Toggle light and dark theme">Theme</button>
+    <span class="spacer"></span>
+
+    <!-- The agent picker: scopes every view to one agent, or shows all. -->
+    <div class="agent-picker" id="provider-switch"></div>
+
+    <!-- Everything used now and then lives in one quiet menu. -->
+    <div class="popover-host">
+      <button id="btn-menu" class="icon-button" type="button" aria-haspopup="menu"
+              aria-expanded="false" aria-controls="app-menu" aria-label="More" title="More">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="3.5" cy="8" r="1.4" fill="currentColor"/>
+          <circle cx="8" cy="8" r="1.4" fill="currentColor"/>
+          <circle cx="12.5" cy="8" r="1.4" fill="currentColor"/>
+        </svg>
+      </button>
+      <div class="popover menu align-right" id="app-menu" role="menu" hidden>
+        <button id="btn-refresh" role="menuitem" type="button" title="Rebuild the index">
+          <span>Refresh</span><kbd>F5</kbd>
+        </button>
+        <button id="btn-theme" role="menuitem" type="button" title="Cycle system, light and dark">
+          <span>Theme</span><span class="menu-value" id="theme-value">System</span>
+        </button>
+        <div class="menu-sep" role="separator"></div>
+        <button id="btn-maintenance" role="menuitem" type="button" title="Bulk clean-up rules">
+          <span>Clean up sessions…</span>
+        </button>
+        <button id="btn-trash" role="menuitem" type="button" title="Show the trash">
+          <span>Trash</span>
+        </button>
+        <div class="menu-sep" role="separator"></div>
+        <button id="btn-shortcuts" role="menuitem" type="button">
+          <span>Keyboard shortcuts</span><kbd>?</kbd>
+        </button>
+      </div>
+    </div>
   </header>
 
   <div class="progress-bar" id="progress"><div></div></div>
@@ -80,29 +110,52 @@
     <section class="view active" id="view-sessions">
       <aside class="sidebar">
         <div class="sidebar-head">
-          <div class="filter-row">
-            <select id="filter-project" aria-label="Filter by project">
-              <option value="">All projects</option>
-            </select>
-          </div>
-          <div class="filter-row">
-            <select id="sort" aria-label="Sort sessions" title="Sort order">
-              <option value="recent">Recent</option>
-              <option value="oldest">Oldest</option>
-              <option value="longest">Longest</option>
-              <option value="expensive">Costliest</option>
-              <option value="messages">Messages</option>
-              <option value="tokens">Tokens</option>
-              <option value="size">File size</option>
-              <option value="title">A to Z</option>
-            </select>
-            <select id="filter-model" aria-label="Filter by model" title="Filter by model">
-              <option value="">Model</option>
-            </select>
-            <select id="filter-tool" aria-label="Filter by tool" title="Filter by tool">
-              <option value="">Tool</option>
-            </select>
-            <button id="btn-favorites" title="Show only favourites">&#9733;</button>
+          <select id="filter-project" class="quiet-select" aria-label="Filter by project">
+            <option value="">All projects</option>
+          </select>
+          <div class="popover-host">
+            <button id="btn-filters" class="icon-button" type="button" aria-haspopup="dialog"
+                    aria-expanded="false" aria-controls="filter-panel"
+                    aria-label="Sort and filter" title="Sort and filter">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor"
+                      stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+              <span class="filter-dot" id="filter-dot" hidden></span>
+            </button>
+            <div class="popover align-right filter-panel" id="filter-panel" role="dialog"
+                 aria-label="Sort and filter" hidden>
+              <label class="field">
+                <span>Sort by</span>
+                <select id="sort" aria-label="Sort sessions">
+                  <option value="recent">Most recent</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="longest">Longest</option>
+                  <option value="expensive">Costliest</option>
+                  <option value="messages">Most messages</option>
+                  <option value="tokens">Most tokens</option>
+                  <option value="size">Largest file</option>
+                  <option value="title">A to Z</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Model</span>
+                <select id="filter-model" aria-label="Filter by model">
+                  <option value="">Any model</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Tool used</span>
+                <select id="filter-tool" aria-label="Filter by tool">
+                  <option value="">Any tool</option>
+                </select>
+              </label>
+              <button id="btn-favorites" class="toggle-row" type="button" aria-pressed="false">
+                <span class="star-glyph" aria-hidden="true">&#9733;</span>
+                <span>Favourites only</span>
+              </button>
+              <button id="btn-clear-filters" class="link-button" type="button">Reset</button>
+            </div>
           </div>
         </div>
 
@@ -110,8 +163,6 @@
           <span id="list-count">&nbsp;</span>
           <span class="spacer" style="flex:1"></span>
           <span id="list-hint" class="faint"></span>
-          <button id="btn-maintenance" title="Bulk clean-up rules">Clean up</button>
-          <button id="btn-trash" title="Show the trash">Trash</button>
         </div>
 
         <div class="selection-bar hidden" id="selection-bar">
@@ -127,19 +178,21 @@
       </aside>
 
       <div class="content" id="session-content">
-        <div class="placeholder" id="sessions-placeholder">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M4 5.5h16M4 12h16M4 18.5h10" stroke="currentColor"
-                  stroke-width="1.7" stroke-linecap="round"/>
-          </svg>
-          <h2>Select a session</h2>
-          <p>Pick a conversation on the left, or press <kbd>/</kbd> to search every
-             transcript at once.</p>
-          <p class="faint" style="margin-top:14px;font-size:12px">
-            <kbd>Ctrl</kbd>-click rows to select several,
-            <kbd>r</kbd> to resume one in a terminal,
-            <kbd>Del</kbd> to move it to the trash.
-          </p>
+        <div class="placeholder welcome" id="sessions-placeholder">
+          <div class="welcome-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none">
+              <rect x="6" y="10" width="30" height="20" rx="8" fill="var(--accent-soft)"/>
+              <rect x="14" y="20" width="28" height="18" rx="8" fill="var(--user-soft)"
+                    stroke="var(--accent)" stroke-opacity=".35"/>
+              <circle cx="22" cy="29" r="1.6" fill="var(--accent)"/>
+              <circle cx="28" cy="29" r="1.6" fill="var(--accent)" opacity=".7"/>
+              <circle cx="34" cy="29" r="1.6" fill="var(--accent)" opacity=".4"/>
+            </svg>
+          </div>
+          <h2 id="welcome-title">Welcome back</h2>
+          <p>Pick a conversation to read it again, or press <kbd>/</kbd> to search them all.</p>
+          <div class="welcome-recent" id="welcome-recent"></div>
+          <p class="welcome-hint">Press <kbd>?</kbd> for keyboard shortcuts</p>
         </div>
       </div>
     </section>

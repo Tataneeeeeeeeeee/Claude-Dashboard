@@ -256,6 +256,9 @@
               title: 'Local estimate from your pricing table, not billing data',
             })
           : null,
+        (info.versions || []).length
+          ? el('span', { text: (info.versions || []).join(', ') })
+          : null,
         this.errors.length
           ? el('span.v-bad', { text: `${this.errors.length} unparsable lines` })
           : null,
@@ -281,28 +284,31 @@
             info.title || meta.title || 'Conversation',
           ]),
           el('div.v-actions', {}, [
-            toggle('thinking', 'Thinking', 'Show or hide thinking blocks'),
-            toggle('tools', 'Tools', 'Show or hide tool calls and results'),
-            toggle('attachments', 'Context', 'Show or hide injected context'),
-            el('button.bordered', {
-              text: 'Copy as Markdown',
-              title: 'Copy the whole conversation to the clipboard',
+            el('button', {
+              text: 'Copy',
+              title: 'Copy the whole conversation to the clipboard as Markdown',
               onclick: () => this.options.onCopyMarkdown && this.options.onCopyMarkdown(),
             }),
-            el('button.bordered', {
+            el('button', {
               text: 'Export',
               title: 'Save the conversation through a native dialog',
               onclick: (event) => this.options.onExport && this.options.onExport(event),
             }),
           ]),
         ]),
-        this.actionSlot(),
         el('div.v-sub', {}, [
           el('span.mono.truncate', { text: info.cwd || meta.project_path || '' }),
           info.git_branch ? el('span.pill', { text: info.git_branch }) : null,
-          el('span.faint', { text: (info.versions || []).join(', ') }),
         ]),
         counts,
+        el('div.v-toolbar', {}, [
+          el('div.v-toggles', { role: 'group', 'aria-label': 'Show in the conversation' }, [
+            toggle('thinking', 'Thinking', 'Show or hide thinking blocks'),
+            toggle('tools', 'Tools', 'Show or hide tool calls and results'),
+            toggle('attachments', 'Context', 'Show or hide injected context'),
+          ]),
+          this.actionSlot(),
+        ]),
       ]);
     }
 
